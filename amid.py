@@ -25,7 +25,7 @@ SHAPES = ['sphere', 'plane']
 
 class AMID():
     
-    def __init__(self, dstpath, srcpath, uhpc_files, cell_label):
+    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None):
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
         # If does not exist, create dir.
@@ -66,30 +66,52 @@ class AMID():
         else:
             self.uhpc_file = self.src / uhpc_files
             
-        with open(self.uhpc_file, 'r') as f:
-            f.readline()
-            self.cellname = f.readline().strip().split()[-1]
-            f.readline()
-            f.readline()
-            self.mass = float(f.readline().strip().split()[-1]) / 1000
-            self.input_cap = float(f.readline().strip().split()[-1]) / 1000
-            for i in range(4):
-                f.readline()
-            if f.readline().strip().split()[0] == '[Data]':
-                hlinenum = 11
-                hline = f.readline()
-            else:
-                hlinenum = 12
-                f.readline()
-                hline = f.readline()
+        if bytesIO is not None:
+            headlines = []
+            i = 0
+            for line in bytesIO:
+                headlines.append(line.decode().strip().split())
+                if i == 12:
+                    break
+                i = i + 1
+        else:  
+            with open(self.uhpc_file, 'r') as f:
+                headlines = []
+                for i  in range(12):
+                    headlines.append(f.readline().strip().split())
+        #f.readline()
+        #self.cellname = f.readline().strip().split()[-1]
+        self.cellname = headlines[1][-1]
+        #f.readline()
+        #f.readline()
+        #self.mass = float(f.readline().strip().split()[-1]) / 1000
+        self.mass = float(headlines[4][-1]) / 1000
+        #self.input_cap = float(f.readline().strip().split()[-1]) / 1000
+        self.input_cap = float(headlines[5][-1]) / 1000
+        #for i in range(4):
+        #    f.readline()
+        #if f.readline().strip().split()[0] == '[Data]':
+        if headlines[10][0] == '[Data]':
+            hlinenum = 11
+            #hline = f.readline()
+            hline = headlines[10]
+        else:
+            hlinenum = 12
+            #f.readline()
+            #hline = f.readline()
+            hline = headlines[11]
                
         print('Working on cell: {}'.format(self.cellname))
         print('Positive electrode active mass: {} g'.format(self.mass))
         print('Input cell capacity: {} Ah'.format(self.input_cap))
         
-        self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
+        if bytesIO is None:
+            self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
+        else:
+            self.df = pd.read_csv(bytesIO, header=hlinenum)
         # Add Prot.Step column if missing.
-        if hline.strip()[-4:] == 'Flag':
+        #if hline.strip()[-4:] == 'Flag':
+        if hline[-4:] == 'Flag':
             self.df = self.df.rename(columns={'Flag':'Prot.Step'})
             i = self.df.Step
             self.df['Prot.Step'] = i.ne(i.shift()).cumsum() - 1
@@ -111,6 +133,7 @@ class AMID():
         #self.df['Current'] = self.df['Current']
         
         self.sigdf = self._find_sigcurves()
+        plt.plot(self.sigdf['Capacity'], self.sigdf['Potential'])
         self.sc_stepnums = self.sigdf['Prot_step'].unique()
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
@@ -143,18 +166,22 @@ class AMID():
         else:
             first_sig_step = prosteps[ocv_inds[0] + 1]
         #print(first_sig_step)
-        last_sig_step = ocv_inds[-1] + 1
+        #last_sig_step = ocv_inds[-1] + 1
+        if steps[ocv_inds[-1] - 1] != steps[ocv_inds[-1] + 1]:
+            last_sig_step = prosteps[ocv_inds[-1] - 1]
+        else:
+            last_sig_step = prosteps[ocv_inds[-1] + 1]
         #print(last_sig_step)
         sigdf = self.df.loc[(self.df['Prot_step'] >= first_sig_step) & (self.df['Prot_step'] <= last_sig_step)]
         
         return sigdf
     
-    def plot_protocol(self, save=True):
+    def plot_protocol(self, save=True, return_fig=False):
         
         with plt.style.context('grapher'):
         
             fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True,
-                                    figsize=(8, 4), gridspec_kw={'wspace':0.0})
+                                    figsize=(10, 4), gridspec_kw={'wspace':0.0})
             axs[0].plot(self.df['Time'], self.df['Potential'], 'k-')
             axs[0].set_xlabel('Time (h)')
             axs[0].set_ylabel('Voltage (V)')
@@ -192,10 +219,12 @@ class AMID():
                     axs[1].plot(self.sigdf['Capacity']*1000/self.mass, self.sigdf['Potential'],
                                 color='red',
                                 label='Sig Curves')
-            plt.legend()
+            plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
             
             if save is True:
                 plt.savefig(self.dst / 'protocol_vis_{}.jpg'.format(self.cell_label))
+            elif return_fig is True:
+                return fig
             else:
                 plt.show()
         
