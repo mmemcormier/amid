@@ -1,0 +1,68 @@
+% Copyright 2009 Hatem Nassrat
+%
+% This file may be distributed and/or modified under the GNU Public License v3.
+% See http://www.gnu.org/licenses/ for more details.
+
+\mode<presentation>
+
+\newcommand{\dalhousielogo}{
+    \includegraphics[width=0.5in]{logos/dalcolor}
+%   \includegraphics[width=0.5in]{logos/dalblack}
+}
+\newcommand{\deptlogo}{\includegraphics[width=2in]{logos/dalfcs}}
+\newcommand{\dalhousielogoside}{
+    \includegraphics[width=0.5in]{logos/dalinv}
+}
+
+%\logo{\dalhousielogoside}
+
+\definecolor{daldarkgold}{RGB}{187,121,0}
+\definecolor{dalwhite}{RGB}{255,255,255}
+\definecolor{dalblack}{RGB}{0,0,0}
+\definecolor{dalgold}{RGB}{247,178,22}
+\definecolor{dalblue}{RGB}{0,51,102}
+\definecolor{dalred}{RGB}{160,10,36}
+
+\setbeamercolor{structure}{fg=dalblue}
+
+\setbeamercolor{palette primary}{fg=dalblue,bg=dalblack!10}
+\setbeamercolor{palette secondary}{fg=dalblue,bg=dalblack!25}
+\setbeamercolor{palette tertiary}{fg=dalblue,bg=dalblack!40}
+\setbeamercolor{palette quaternary}{fg=dalblue,bg=dalblack!60}
+
+\setbeamercolor{logo}{parent=palette quaternary}
+
+\setbeamercolor{titlelike}{parent=palette quaternary}
+
+\setbeamercolor{section in toc}{fg=dalblue}
+
+\setbeamercolor{item projected}{parent=item,use=item,fg=dalwhite,bg=item.fg}
+
+\setbeamercolor{normal text}{fg=dalblack,bg=dalwhite}
+\setbeamercolor{alerted text}{fg=dalred}
+\setbeamercolor{example text}{fg=dalblue}
+
+\setbeamercolor{block title}{fg=dalgold,bg=dalblack}
+\setbeamercolor{block title alerted}{use=alerted text,fg=white,bg=alerted text.fg!75!black}
+\setbeamercolor{block title example}{use=example text,fg=white,bg=example text.fg!75!black}
+
+\setbeamercolor{block body}{parent=normal text,use=block title,bg=block title.bg!25!bg}
+\setbeamercolor{block body alerted}{parent=normal text,use=block title alerted,bg=block title alerted.bg!10!bg}
+\setbeamercolor{block body example}{parent=normal text,use=block title example,bg=block title example.bg!10!bg}
+
+\setbeamercolor{sidebar}{bg=dalblack}
+\setbeamercolor{palette sidebar primary}{fg=dalgold}
+\setbeamercolor{palette sidebar secondary}{fg=dalgold!75}
+\setbeamercolor{palette sidebar tertiary}{fg=dalgold!75}
+\setbeamercolor{palette sidebar quaternary}{fg=dalgold}
+
+\setbeamercolor*{navigation symbols}{fg=daldarkgold}
+\setbeamercolor*{navigation symbols dimmed}{use=navigation symbols,fg=navigation symbols.fg!40!bg}
+
+\setbeamercolor*{separation line}{}
+\setbeamercolor*{fine separation line}{}
+
+\mode
+<all>
+
+% vim: tw=0 paste nowrap:

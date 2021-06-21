@@ -25,7 +25,9 @@ SHAPES = ['sphere', 'plane']
 
 class AMID():
     
-    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None):
+    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
+                 use_input_cap=False):
+        
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
         # If does not exist, create dir.
@@ -87,7 +89,7 @@ class AMID():
         #self.mass = float(f.readline().strip().split()[-1]) / 1000
         self.mass = float(headlines[4][-1]) / 1000
         #self.input_cap = float(f.readline().strip().split()[-1]) / 1000
-        self.input_cap = float(headlines[5][-1]) / 1000
+        self.input_cap = float(headlines[5][-1]) / 1000  # Convert to Ah
         #for i in range(4):
         #    f.readline()
         #if f.readline().strip().split()[0] == '[Data]':
@@ -133,11 +135,14 @@ class AMID():
         #self.df['Current'] = self.df['Current']
         
         self.sigdf = self._find_sigcurves()
-        plt.plot(self.sigdf['Capacity'], self.sigdf['Potential'])
+        #plt.plot(self.sigdf['Capacity'], self.sigdf['Potential'])
         self.sc_stepnums = self.sigdf['Prot_step'].unique()
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
-        print('Specific Capacity: {0:.2f} mAh'.format(self.spec_cap*1000))
+        print('Specific Capacity achieved in advanced protocol: {0:.2f} mAh/g'.format(self.spec_cap*1000))
+        if use_input_cap is True:
+            self.capacity = self.input_cap
+        print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
         
         self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         self.nvolts = len(self.caps)
@@ -204,13 +209,18 @@ class AMID():
                     cyclabel = 'Charge'
                 else:
                     cyclabel = 'Discharge'
+                    
+                if stepdf['Step'].values[0] == 0:
+                    label = 'OCV'
+                else:
+                    avgcurr = np.absolute(avgcurr)
+                    minarg = np.argmin(np.absolute(RATES - self.capacity/avgcurr))
+                    rate = RATES[minarg]
+                    label = 'C/{0} {1}'.format(int(rate), cyclabel)
                 
-                avgcurr = np.absolute(avgcurr)
-                minarg = np.argmin(np.absolute(RATES - self.capacity/avgcurr))
-                rate = RATES[minarg]
                 axs[1].plot(stepdf['Capacity']*1000/self.mass, stepdf['Potential'],
                             color=colors[c],
-                            label='C/{0} {1}'.format(int(rate), cyclabel))
+                            label=label)
                 c = c + 1
                 
                 # if the next step is the start of sigcurves, plot sigcurves
@@ -423,7 +433,7 @@ class AMID():
                 fit_err[j] = np.sum(weights*error)
                 
                 plt.semilogx(Qfit, tau_fit, 'or', label='{0} - {1}'.format(self.cell_label, self.vlabels[j]))
-                plt.xlabel(r'$Q = 3600 n D / r^2$')
+                plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
                 plt.legend(frameon=False, loc='lower right')
                 if save is True:
