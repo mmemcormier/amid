@@ -26,7 +26,7 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 use_input_cap=False):
+                 export_data=True, use_input_cap=False):
         
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
@@ -35,6 +35,8 @@ class AMID():
             self.dst.mkdir()
             print('Create directory: {}'.format(self.dst))
         self.src = Path(srcpath)
+        
+        # Need to modify concatenation tool to accommodate bytesIO.
         if type(uhpc_files) is list:
             self.uhpc_file = self.dst / "{}-concatenated.csv".format(self.cell_label)
             # concatenate uhpc files if more than 1 is passed.
@@ -130,9 +132,7 @@ class AMID():
         print('Indices being removed due to negative voltage: {}'.format(inds))
         self.df = self.df.drop(inds)
         
-        self.df.columns = COLUMNS
-        #self.df['Capacity'] = self.df['Capacity']
-        #self.df['Current'] = self.df['Current']
+        #plt.plot(self.df['Capacity'], self.df['Potential'])
         
         self.sigdf = self._find_sigcurves()
         #plt.plot(self.sigdf['Capacity'], self.sigdf['Potential'])
@@ -143,15 +143,31 @@ class AMID():
         if use_input_cap is True:
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
-        
+
         self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         self.nvolts = len(self.caps)
-        self.caps = 1000*np.array(self.caps)/self.mass
+        #self.caps = np.array(self.caps)
+        #print(type(self.caps))
+        #print(type(self.mass))
+        #self.caps = 1000*np.array(self.caps)/self.mass
         self.scaps = []
         self.fcaps = []
         for i in range(self.nvolts):
             self.scaps.append(np.cumsum(self.caps[i]))
             self.fcaps.append(np.cumsum(self.caps[i]) / np.sum(self.caps[i]))
+            
+                    
+        if export_data is True:
+            caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
+            writer = pd.ExcelWriter(caprate_fname)
+            for i in range(self.nvolts):
+                caprate_df = pd.DataFrame(data={'specific_capacity': self.scaps[i],
+                                                'fractional_capacity': self.fcaps[i],
+                                                'effective_rate': self.eff_rates[i],
+                                                'C-rates': self.rates[i]})
+                caprate_df.to_excel(writer, sheet_name=self.vlabels[i], index=False)
+            writer.save()
+            writer.close()
             
         print('Done parsing signature curves.')
         
@@ -166,17 +182,42 @@ class AMID():
         steps = newdf['Step'].values
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
-        if steps[ocv_inds[0] - 1] == steps[ocv_inds[0] + 1]:
-            first_sig_step = prosteps[ocv_inds[0] - 1]
-        else:
-            first_sig_step = prosteps[ocv_inds[0] + 1]
-        #print(first_sig_step)
-        #last_sig_step = ocv_inds[-1] + 1
-        if steps[ocv_inds[-1] - 1] != steps[ocv_inds[-1] + 1]:
-            last_sig_step = prosteps[ocv_inds[-1] - 1]
-        else:
+        print(ocv_inds)
+        # Require a min of 3 OCV steps with the same step before and after
+        # to qualify as a signature curve.
+        #print(steps[2], steps[6])
+        for i in range(len(ocv_inds)):
+            #print(ocv_inds[i], steps[ocv_inds[i] - 1], steps[ocv_inds[i+2] + 1])
+            if steps[ocv_inds[i] - 1] == steps[ocv_inds[i+2] + 1]:
+                first_sig_step = prosteps[ocv_inds[i] - 1]
+                break
+        
+        #last_sig_step = None
+        for i in range(len(ocv_inds)):
+            ind = -i - 1
+            if steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] - 1]:
+                last_sig_step = prosteps[ocv_inds[ind] - 1]
+                break
+                
+            elif steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] + 2]:
+                last_sig_step = prosteps[ocv_inds[ind] + 1]
+                break
+                
+            #print(ocv_inds[-i-1], steps[ocv_inds[-i-1] - 1], steps[ocv_inds[-i-1] + 1])
+            #if len(steps) > ocv_inds[-i-1] + 3:
+            #    if steps[ocv_inds[-i-1]] != steps[ocv_inds[-i-1] + 2]:
+            #        last_sig_step = prosteps[ocv_inds[-i-1] + 1]
+            #        break
+            #if (steps[ocv_inds[-i-1] - 1] != steps[ocv_inds[-i-1] + 1]):
+            #    last_sig_step = prosteps[ocv_inds[-i-1] - 1]
+            #    break
+        #print(i)
+        if i == len(ocv_inds) - 1:
             last_sig_step = prosteps[ocv_inds[-1] + 1]
-        #print(last_sig_step)
+
+        print('First signature curve step: {}'.format(first_sig_step))
+        print('Last signature curve step: {}'.format(last_sig_step))
+        
         sigdf = self.df.loc[(self.df['Prot_step'] >= first_sig_step) & (self.df['Prot_step'] <= last_sig_step)]
         
         return sigdf
@@ -349,11 +390,16 @@ class AMID():
             for n in range(nrates):
                 eff_rates[-1].append(vcaps[m]/currs[m][n])           
         
+        new_caps = []
+        for i in range(nvolts):
+            new_caps.append(1000*np.array(caps[i])/self.mass)
+
         
-        return caps, rates, eff_rates, currs, ir, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, rates, eff_rates, currs, ir, cvolts, avg_volt, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, ftol=5e-14, shape='sphere', nalpha=150, nQ=2000, save=True, label=None):
+    def fit_atlung(self, r, ftol=5e-14, D_bounds=None, shape='sphere',
+                   nalpha=150, nQ=2000, save=True, label=None):
         
         self.r = r
         
@@ -399,7 +445,13 @@ class AMID():
             rates = np.array(self.eff_rates[j])
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
-            bounds = ([1e-15, 0.9*np.amax(scap)], [1e-10, 1.5*np.amax(scap)])
+            if D_bounds is None:
+                bounds = ([1e-15, 0.9*np.amax(scap)],
+                          [1e-10, 1.5*np.amax(scap)])
+            else:
+                bounds = ([D_bounds[0], 0.9*np.amax(scap)],
+                          [D_bounds[1], 1.5*np.amax(scap)])
+                
             p0 = [1e-13, np.amax(scap)]
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -447,7 +499,11 @@ class AMID():
                 plt.close()
                 
         DVdf = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
-        df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
+        if label is None:
+            df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
+        else:
+            df_filename = self.dst / '{0}-{1}_D-V_{2}.xlsx'.format(self.cell_label, label, shape)
+            
         DVdf.to_excel(df_filename, columns=['Voltage', 'D'], index=False)
         
         print('Fitted Dc: {}'.format(dconst))

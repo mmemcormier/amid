@@ -20,9 +20,14 @@ def read_data(bytesIO, dstdir, cell_label):
     return AMID(dstdir, "", "", cell_label, bytesIO=bytesIO)
 
 @st.cache(persist=True, suppress_st_warning=True)
+def dstdir_button():
+    return st.button('Select DST')
+
+@st.cache(persist=True, suppress_st_warning=True)
 def output_dir(clicked):
     if clicked is True:
-        dstdir = st.text_input('Selected DST folder:', filedialog.askdirectory(master=root))
+        dstdir = filedialog.askdirectory(master=root)
+        #dstdir = st.text_input('Selected DST folder:', filedialog.askdirectory(master=root))
         return dstdir
     else:
         return "./"
@@ -45,7 +50,9 @@ st.title('Set output folder.')
 
 st.write('Where would you like graphs and datafiles saved?')
 clicked = st.button('Select DST')
+#clicked = dstdir_button()
 dstdir = output_dir(clicked)
+st.text_input('Selected DST folder:', dstdir)
 #dstdir = './'
 #if clicked:
 #    dstdir = st.text_input('Selected DST folder:', filedialog.askdirectory(master=root))
@@ -60,7 +67,7 @@ if bytesIO is not None:
     amid_data = read_data(bytesIO, dstdir, cell_label)
     #amid_data = AMID(dstdir, "", "", cell_label, bytesIO=fdata)
     if plot_protocol:
-        pro_fig = amid_data.plot_protocol(save=False, return_fig=True)
+        pro_fig = amid_data.plot_protocol(save=save_protocol, return_fig=True)
         st.pyplot(fig=pro_fig)
     
     
