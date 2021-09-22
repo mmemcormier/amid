@@ -301,7 +301,8 @@ Should give the same cumulative capacity for each rate. Much faster than chargin
 \end{columns}
 
 Once $D$ and $c_{max}$ are fit, we can plot the measured data on top of the theoretical $\tau^*(Q)$ curve to get a visual of fit quality. \\
-Note that here $n$ is actually $n_{eff}$.
+\vspace{\baselineskip}
+The weight of each rate in the fit is scaled by the magnitude of the IR contribution to V. 
 
 \end{frame}
 
@@ -309,6 +310,7 @@ Note that here $n$ is actually $n_{eff}$.
 \frametitle{D(V): fit quality}
 
 \begin{columns}
+	\fontsize{10}{8}
 	
 	\column{0.45\textwidth}
 	\vspace{-0.5cm}
@@ -316,12 +318,100 @@ Note that here $n$ is actually $n_{eff}$.
 		\includegraphics[width=0.95\linewidth]{figs/D-V_Li112Ni44Mn44O2_r-05um.jpg}
 	\end{figure}
 	
-	\column{0.45\textwidth}
+	\column{0.55\textwidth}
 	\begin{itemize}
-		\item Average fit error $= \sum_{i=1}^{n_{rates}}IR^{norm}_{i}|\tau_i - \tau_{Atlung}|$  
+		\item Average fit error $= \sum_{i=1}^{n_{rates}}IR^{norm}_{i}|\tau_i - \tau_{Atlung}|$ 
+		\item Capacity span: which portion of the theoritical curve is covered by the fitted data.\\
+			  Length of grey bar $\rightarrow$ black triangle
+		\item Specific capacities: light grey bars give cumulative capacity achieved in each voltage interval; 
+		      dark grey bars gives additional capacity achieved at each rate. The sum of the dark grey bars give the height of their respective light grey bar.
+		\item IR drop: Sequentially darker shades correspond to sequentially lower rates. Lightest shade $\rightarrow$ highest rate. Computed by 
+			  dividing IR for a particular rate by the size of the voltage interval. 
 	\end{itemize}
 	
 \end{columns}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Particle size}
+
+\begin{figure}
+	\includegraphics[width=0.85\linewidth]{figs/prim_vs_sec_particles.pdf}
+\end{figure}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Particle shape}
+
+\centering
+SC-LiNi$_{0.975}$Mg$_{0.025}$O$_2$
+\begin{figure}
+	\includegraphics[width=0.75\linewidth]{figs/SC_Ni975Mg025_09um_30C_D-V_compare_sphere-plane.jpg}
+\end{figure}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{How to obtain D for full V range?}
+
+\begin{figure}
+	\includegraphics[width=0.95\linewidth]{figs/avgD.png}
+\end{figure}
+
+Recall: solution to couple PDEs assume D was constant. \\
+Provided modest IR, I trust D(V) data more than full range D.
+
+\end{frame}
+
+\begin{frame}
+\frametitle{AMID tells us the positive electrode rate capability}
+
+\centering
+Li$_{1+x}$(Ni$_{0.5}$Mn$_{0.5}$)$_{1-x}$O$_2$
+\vspace{-0.5cm}
+\begin{columns}
+	
+	\column{0.5\textwidth}
+	\begin{figure}
+		\includegraphics[width=0.95\linewidth]{figs/cap-primsize_2C.jpg}
+	\end{figure}
+	
+	\column{0.5\textwidth}
+	\begin{figure}
+		\includegraphics[width=0.95\linewidth]{figs/cap-primsize_5C.jpg}
+	\end{figure}
+	
+\end{columns}
+
+Assuming no other kinetic limitations in the cell (i.e., electrolyte)
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Can we correct for IR?}
+
+\begin{figure}
+	\includegraphics[width=0.95\linewidth]{figs/IR_correct.pdf}
+\end{figure}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Install AMID API and Jupyter Notebook}
+\fontsize{10}{10}
+\begin{itemize}
+	\item Install Python through Anaconda: https://www.anaconda.com/products/individual
+	\item Install spyder-notebook. In Windows search bar type ``Conda prompt". Then run ``conda install spyder-notebook".
+	\item Create folder ".matplotlib\textbackslash stylelib" (if it does not exist already) in your home directory.\\
+		  On Windows: ``C:\textbackslash \textbackslash Users\textbackslash user\_name\textbackslash"
+	\item Copy grapher.mplstyle from ``dahn-share\textbackslash marc~cormier\textbackslash amid-api\textbackslash" into the 
+	      ``.matplotlib\textbackslash stylelib\textbackslash" folder.
+	\item Copy ``amid.py" and ``amid-analysis.ipynb" into the same folder, wherever you like on your computer.
+	\item Open Spyder. If you don't see a ``Notebook" tab, select View$\rightarrow$panes$\rightarrow$Notebook.
+	\item Use the small gear wheel in the top right of the Notebook panel to open amid-analysis.ipynb
+\end{itemize}
 
 \end{frame}
 
