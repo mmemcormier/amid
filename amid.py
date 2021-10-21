@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit, fsolve
 from pathlib import Path
+import re
 import matplotlib.pyplot as plt
 from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
                                AutoMinorLocator)
@@ -36,7 +37,9 @@ class AMID():
             print('Create directory: {}'.format(self.dst))
         self.src = Path(srcpath)
         
-        # Need to modify concatenation tool to accommodate bytesIO.
+        ### TODO:
+        ### Need to modify concatenation tool to accommodate bytesIO
+        ### and new parsing method. 
         if type(uhpc_files) is list:
             self.uhpc_file = self.dst / "{}-concatenated.csv".format(self.cell_label)
             # concatenate uhpc files if more than 1 is passed.
@@ -70,6 +73,7 @@ class AMID():
         else:
             self.uhpc_file = self.src / uhpc_files
             
+        # need to update bytesIO read.
         if bytesIO is not None:
             headlines = []
             i = 0
@@ -80,49 +84,87 @@ class AMID():
                 i = i + 1
         else:  
             with open(self.uhpc_file, 'r') as f:
-                headlines = []
-                for i  in range(12):
-                    headlines.append(f.readline().strip().split())
-        #f.readline()
-        #self.cellname = f.readline().strip().split()[-1]
-        self.cellname = headlines[1][-1]
-        #f.readline()
-        #f.readline()
-        #self.mass = float(f.readline().strip().split()[-1]) / 1000
-        self.mass = float(headlines[4][-1]) / 1000
-        #self.input_cap = float(f.readline().strip().split()[-1]) / 1000
-        self.input_cap = float(headlines[5][-1]) / 1000  # Convert to Ah
-        #for i in range(4):
-        #    f.readline()
-        #if f.readline().strip().split()[0] == '[Data]':
-        if headlines[10][0] == '[Data]':
-            hlinenum = 11
-            #hline = f.readline()
-            hline = headlines[10]
+                lines = f.readlines()
+            nlines = len(lines)
+            headlines = []
+            for i in range(nlines):
+                headlines.append(lines[i])
+                l = lines[i].strip().split()
+                if l[0][:6] == '[Data]':
+                    hline = lines[i+1]
+                    nskip = i+1
+                    break
+            
+            header = ''.join(headlines)
+            del lines
+
+                
+        # find mass and theoritical cap using re on header str
+        m = re.search('Mass\s+\(.*\):\s+(\d+)?\.\d+', header)
+        m = m.group(0).split()
+        mass_units = m[1][1:-2]
+        if mass_units == 'mg':
+            self.mass = float(m[-1]) / 1000
         else:
-            hlinenum = 12
+            self.mass = float(m[-1])
+        
+        m = re.search('Capacity\s+(.*):\s+(\d+)?\.\d+', header)
+        m = m.group(0).split()
+        cap_units = m[1][1:-2]
+        if cap_units == 'mAHr':
+            self.input_cap = float(m[-1]) / 1000
+        else:
+            self.input_cap = float(m[-1])
+            
+        m = re.search('Cell: .+?(?=,|\\n)', header)
+        m = m.group(0).split()
+        self.cellname = m[-1]
+        
+        #self.cellname = headlines[1][-1]
+        #self.mass = float(headlines[4][-1]) / 1000
+        #self.input_cap = float(headlines[5][-1]) / 1000  # Convert to Ah
+        #if headlines[10][0] == '[Data]':
+        #    hlinenum = 11
+            #hline = f.readline()
+        #    hline = headlines[10]
+        #else:
+        #    hlinenum = 12
             #f.readline()
             #hline = f.readline()
-            hline = headlines[11]
+        #    hline = headlines[11]
                
         print('Working on cell: {}'.format(self.cellname))
         print('Positive electrode active mass: {} g'.format(self.mass))
         print('Input cell capacity: {} Ah'.format(self.input_cap))
         
         if bytesIO is None:
-            self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
+            self.df = pd.read_csv(self.uhpc_file, header=nskip)
+            #self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
         else:
             self.df = pd.read_csv(bytesIO, header=hlinenum)
-        # Add Prot.Step column if missing.
-        #if hline.strip()[-4:] == 'Flag':
-        if hline[-4:] == 'Flag':
-            self.df = self.df.rename(columns={'Flag':'Prot.Step'})
-            i = self.df.Step
-            self.df['Prot.Step'] = i.ne(i.shift()).cumsum() - 1
             
-        self.df.columns = COLUMNS
+        self.df.rename(columns={'Capacity (Ah)': 'Capacity',
+                                'Potential (V)': 'Potential',
+                                'Run Time (h)': 'Time',
+                                'Time (h)': 'Time',
+                                'Current (A)': 'Current',
+                                'Cycle Number': 'Cycle',
+                                'Meas I (A)': 'Current',
+                                'Step Type': 'Step'},
+                       inplace=True)
+        print(self.df.columns)
+        # Add Prot_step column even if step num exists.
+        s = self.df.Step
+        self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
+
+        #if hline[-4:] == 'Flag':
+        #    self.df = self.df.rename(columns={'Flag':'Prot.Step'})
+        #    i = self.df.Step
+        #    self.df['Prot.Step'] = i.ne(i.shift()).cumsum() - 1
+            
+        #self.df.columns = COLUMNS
         
-        # Remove data where time is not increasing.   
+        # Remove data where time is not monotonically increasing.   
         t = self.df['Time'].values
         dt = t[1:] - t[:-1]
         inds = np.where(dt < 0.0)[0]

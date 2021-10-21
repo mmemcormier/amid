@@ -58,7 +58,7 @@
 \frametitle{General Solution}
 
 \begin{equation*}
-c(t,x) = \frac{j_0 r}{D} \left[ a\frac{Dt}{r^2} + \frac{z^2}{2} - b - 2 \sum_{i} \frac{\exp(\alpha_i^2Dt/r^2)}{\alpha_i^2} C(\alpha_i z) \right]
+c(t,x) = \frac{j_0 r}{D} \left[ a\frac{Dt}{r^2} + \frac{z^2}{2} - b - 2 \sum_{i} \frac{\exp(-\alpha_i^2Dt/r^2)}{\alpha_i^2} C(\alpha_i z) \right]
 \end{equation*}
 
 Where $z=x/r$ is a normalized coordinate \\ 
@@ -77,7 +77,7 @@ $j_0$ is a flux density that depends on the particle shape. This assumes that on
 \frametitle{Normalized Solution (for spheres)}
 
 \begin{equation*}
-X(z, \tau) = \tau + \frac{1}{3Q} \left(\frac{z^2}{2} - \frac{3}{10} -2 \sum_{i} \left[\frac{\exp(\alpha_i^2 Q\tau)}{\alpha_i^2} \frac{\sin(\alpha_i z)}{\sin(\alpha_i)} \right] \right)
+X(z, \tau) = \tau + \frac{1}{3Q} \left(\frac{z^2}{2} - \frac{3}{10} -2 \sum_{i} \left[\frac{\exp(-\alpha_i^2 Q\tau)}{\alpha_i^2} \frac{\sin(\alpha_i z)}{\sin(\alpha_i)} \right] \right)
 \end{equation*}
 \begin{itemize}
 	\item $X = \frac{cV_m}{n}$: local fractional Li concentration.
