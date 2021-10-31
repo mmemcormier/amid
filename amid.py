@@ -373,26 +373,39 @@ class AMID():
             currents = np.absolute(step['Current'].values)
             rate = self.capacity / np.average(currents)
             minarg = np.argmin(np.absolute(RATES - rate))
+            
+            # slice first and last current values if possible.
+            if len(currents) > 2:
+                currents = currents[1:-1]
+            elif len(currents) == 2:
+                currents = currents[1:]
+                
             if i == 0:
                 caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                 rates.append([RATES[minarg]])
-                cutvolts.append([volts[-1]])
+                cutvolts.append([volts[-2]])
                 currs.append([np.average(currents)])
                 ir.append([np.absolute(volts[0] - volts[1])])
             else:
-                if np.amax(currents) < currs[-1][-1]:
+                #if np.amax(currents) < currs[-1][-1]:
+                if np.average(currents) < currs[-1][-1]:
                     caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
                     rates[-1].append(RATES[minarg])
-                    cutvolts[-1].append(volts[-1])
-                    currs[-1].append(np.amax(currents))
+                    cutvolts[-1].append(volts[-2])
+                    currs[-1].append(np.average(currents))
+                    #currs[-1].append(np.amax(currents[1:]))
                     ir[-1].append(np.absolute(volts[0] - volts[1]))
                 else:
+                    if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
+                        continue
+                    #print(np.average(currents), volts[-2])
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
-                    cutvolts.append([volts[-1]])
+                    cutvolts.append([volts[-2]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
-                    
+         
+        print('Found {} signature curves.'.format(len(caps)))
         nvolts = len(caps)
         cvolts = np.zeros(nvolts)
         for i in range(len(caps)):
