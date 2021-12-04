@@ -99,7 +99,7 @@ class AMID():
             del lines
 
                 
-        # find mass and theoritical cap using re on header str
+        # find mass and theoretical cap using re on header str
         m = re.search('Mass\s+\(.*\):\s+(\d+)?\.\d+', header)
         m = m.group(0).split()
         mass_units = m[1][1:-2]
@@ -153,6 +153,7 @@ class AMID():
                                 'Step Type': 'Step'},
                        inplace=True)
         print(self.df.columns)
+        print(self.df.Step.unique())
         # Add Prot_step column even if step num exists.
         s = self.df.Step
         self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
@@ -170,6 +171,7 @@ class AMID():
         inds = np.where(dt < 0.0)[0]
         print('Indices being removed to time non-monotonicity: {}'.format(inds))
         self.df = self.df.drop(inds+1)
+        # Remove data where potential is negative.
         inds = self.df.index[self.df['Potential'] < 0.0].tolist()
         print('Indices being removed due to negative voltage: {}'.format(inds))
         self.df = self.df.drop(inds)
@@ -379,6 +381,9 @@ class AMID():
                 currents = currents[1:-1]
             elif len(currents) == 2:
                 currents = currents[1:]
+            # if there is only 1 data point, don't use it.
+            else:
+                continue
                 
             if i == 0:
                 caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
