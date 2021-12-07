@@ -188,7 +188,7 @@ class AMID():
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
+        self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.dQdV, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         self.nvolts = len(self.caps)
         #self.caps = np.array(self.caps)
         #print(type(self.caps))
@@ -368,6 +368,7 @@ class AMID():
         cutvolts = []
         currs = []
         ir = []
+        dqdv = []
         for i in range(nsig):
             step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
             stepcaps = step['Capacity'].values
@@ -377,10 +378,12 @@ class AMID():
             minarg = np.argmin(np.absolute(RATES - rate))
             
             # slice first and last current values if possible.
+            # if less than 3 data points, omit step.
             if len(currents) > 2:
                 currents = currents[1:-1]
-            elif len(currents) == 2:
-                currents = currents[1:]
+                diffQ = (stepcaps[1:] - stepcaps[:-1]) / (volts[1:] - volts[:-1])
+            #elif len(currents) == 2:
+            #    currents = currents[1:]
             # if there is only 1 data point, don't use it.
             else:
                 continue
@@ -391,6 +394,7 @@ class AMID():
                 cutvolts.append([volts[-2]])
                 currs.append([np.average(currents)])
                 ir.append([np.absolute(volts[0] - volts[1])])
+                dqdv.append([diffQ])
             else:
                 #if np.amax(currents) < currs[-1][-1]:
                 if np.average(currents) < currs[-1][-1]:
@@ -400,6 +404,7 @@ class AMID():
                     currs[-1].append(np.average(currents))
                     #currs[-1].append(np.amax(currents[1:]))
                     ir[-1].append(np.absolute(volts[0] - volts[1]))
+                    dqdv[-1].append(diffQ)
                 else:
                     if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
                         continue
@@ -409,6 +414,7 @@ class AMID():
                     cutvolts.append([volts[-2]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
+                    dqdv.append([diffQ])
          
         print('Found {} signature curves.'.format(len(caps)))
         nvolts = len(caps)
@@ -455,10 +461,10 @@ class AMID():
             new_caps.append(1000*np.array(caps[i])/self.mass)
 
         
-        return new_caps, rates, eff_rates, currs, ir, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, ftol=5e-14, D_bounds=None, shape='sphere',
+    def fit_atlung(self, r, ftol=5e-14, D_bounds=None, D_guess=None, shape='sphere', corr=False,
                    nalpha=150, nQ=2000, save=True, label=None):
         
         self.r = r
@@ -482,16 +488,19 @@ class AMID():
             A, B = 1, 3
                 
         # Solve for tau vs Q
-        Q_arr = np.logspace(-3, 2, nQ)
-        tau_sol = np.zeros(nQ)
-        tau_guess = 0.5
-        for j in range(nQ):
-            Q = Q_arr[j]
-            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
-            tau_sol[j] = fsolve(func, tau_guess, factor=1.)
+        if corr is False:
+            Q_arr = np.logspace(-3, 2, nQ)
+            tau_sol = np.zeros(nQ)
+            tau_guess = 0.5
+            for i in range(nQ):
+                Q = Q_arr[i]
+                func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
+                tau_sol[i] = fsolve(func, tau_guess, factor=1.)
         
                 
         dconst = np.zeros(self.nvolts, dtype=float)
+        resist = np.zeros(self.nvolts, dtype=float)
+        dQdV = np.zeros(self.nvolts, dtype=float)
         sigma = np.zeros(self.nvolts, dtype=float)
         fit_err = np.zeros(self.nvolts, dtype=float)
         cap_max = np.zeros(self.nvolts, dtype=float)
@@ -502,30 +511,72 @@ class AMID():
             z = np.ones(len(self.scaps[j]))
             #fcap = np.array(self.fcaps[j])
             scap = np.array(self.scaps[j])
+            self._max_cap = scap[-1]
+            #print('Max cap: {} mAh/g'.format(self._max_cap))
             rates = np.array(self.eff_rates[j])
+            I = np.array(self.currs[j])*1000
+            #print("Currents: {} mA".format(I))
+            #self._dqdv = np.average(self.dQdV[j][-1])*1000/self.mass
+            dQdV[j] = np.average(self.dQdV[j][-1])*1000/self.mass
+            #print("dQ/dV: {} mAh/g/V".format(self._dqdv))
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
-            if D_bounds is None:
-                bounds = ([1e-15, 0.9*np.amax(scap)],
-                          [1e-10, 1.5*np.amax(scap)])
+            
+            if corr is False:
+                if D_bounds is None:
+                    bounds = ([1e-15, 0.6*np.amax(scap)],
+                              [1e-10, 1.1*np.amax(scap)])
+                else:
+                    bounds = ([D_bounds[0], 0.6*np.amax(scap)],
+                              [D_bounds[1], 1.1*np.amax(scap)])
+                if D_guess is None:   
+                    p0 = [1e-13, np.amax(scap)]
+                else:
+                    p0 = [D_guess, np.amax(scap)]
+                    
             else:
-                bounds = ([D_bounds[0], 0.9*np.amax(scap)],
-                          [D_bounds[1], 1.5*np.amax(scap)])
+                if D_bounds is None:
+                    bounds = ([1e-15, 0.5*np.amax(scap), 0.0],
+                              [1e-10, 1.1*np.amax(scap), 10.0])
+                else:
+                    bounds = ([D_bounds[0], 0.5*np.amax(scap), 0.0],
+                              [D_bounds[1], 1.1*np.amax(scap), 10.0])
+                if D_guess is None:   
+                    p0 = [1e-13, np.amax(scap), 1e-2]
+                else:
+                    p0 = [D_guess, np.amax(scap), 1e-2]
                 
-            p0 = [1e-13, np.amax(scap)]
             with plt.style.context('grapher'):
                 fig = plt.figure()
-                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
+                
                 if shape == 'sphere':
-                    popt, pcov = curve_fit(self._spheres, (scap, rates), z, p0=p0,
-                               bounds=bounds, sigma=weights,
-                               method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
-                               ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                    if corr is False:
+                        popt, pcov = curve_fit(self._spheres, (scap, rates), z, p0=p0,
+                                   bounds=bounds, sigma=weights,
+                                   method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
+                                   ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                    else:
+                        popt, pcov = curve_fit(self._spheres_corr, (scap, rates), z, p0=p0,
+                                   bounds=bounds,
+                                   method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap), 1.],
+                                   ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                        print("Opt params: {}".format(popt))
+                        resist[j] = popt[-1]
+                        Q_arr = np.logspace(-3, 2, nQ)
+                        tau_sol = np.zeros(nQ)
+                        tau_guess = 0.5
+                        for i in range(nQ):
+                            Q = Q_arr[i]
+                            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + popt[-1]/Q
+                            tau_sol[i] = fsolve(func, tau_guess, factor=1.)
+                        
                 if shape == 'plane':
                     popt, pcov = curve_fit(self._planes, (scap, rates), z, p0=p0,
                                bounds=bounds, sigma=weights,
                                method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
                                ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                
+                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 
                 sigma[j] = np.sqrt(np.diag(pcov))[0]
                 dconst[j] = popt[0]
@@ -557,20 +608,27 @@ class AMID():
                 else:
                     plt.show()
                 plt.close()
-                
-        DVdf = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
+        
+        if corr is False:
+            DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
+            #cols = ['Voltage', 'D']
+        else:
+            DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst,
+                                       'R_eff' : resist, 'dQdV': dQdV})
+            
         if label is None:
             df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
         else:
             df_filename = self.dst / '{0}-{1}_D-V_{2}.xlsx'.format(self.cell_label, label, shape)
             
-        DVdf.to_excel(df_filename, columns=['Voltage', 'D'], index=False)
+        #DV_df.to_excel(df_filename, columns=cols, index=False)
+        DV_df.to_excel(df_filename, index=False)
         
         print('Fitted Dc: {}'.format(dconst))
         print('Standard deviations from fit: {}'.format(sigma))
         print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts
+        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist, dQdV
         
     def make_summary_graph(self, fit_data, save=True, label=None):
         
@@ -663,6 +721,16 @@ class AMID():
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
+    
+    def _spheres_corr(self, X, D, c_max, R_Ohm):
+        
+        c, n = X
+        carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
+        narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
+        a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
+        
+        #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
+        return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + R_Ohm*self.r**2/(3600*n*D)
     
     def _planes(self, X, D, c_max):
         
