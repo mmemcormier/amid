@@ -188,17 +188,27 @@ class AMID():
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.dQdV, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
+        self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.dqdv, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         self.nvolts = len(self.caps)
-        #self.caps = np.array(self.caps)
-        #print(type(self.caps))
-        #print(type(self.mass))
-        #self.caps = 1000*np.array(self.caps)/self.mass
+
+        # Get cummulative specific and fractional capacities
         self.scaps = []
         self.fcaps = []
         for i in range(self.nvolts):
-            self.scaps.append(np.cumsum(self.caps[i]))
             self.fcaps.append(np.cumsum(self.caps[i]) / np.sum(self.caps[i]))
+            self.scaps.append(np.cumsum(self.caps[i]))
+            # Remove data where capacity is too small due to IR
+            # i.e., voltage cutoff was reached immediately.
+            inds = np.where(self.scaps[i] < 0.075)[0]
+            if len(inds) > 0:
+                self.scaps[i] = np.delete(self.scaps[i], inds)
+                self.fcaps[i] = np.delete(self.fcaps[i], inds)
+                self.eff_rates[i] = np.delete(self.eff_rates[i], inds)
+                self.rates[i] = np.delete(self.rates[i], inds)
+                self.ir[i] = np.delete(self.ir[i], inds)
+                self.currs[i] = np.delete(self.currs[i], inds)
+                self.dqdv[i] = np.delete(self.dqdv[i], inds)
+            
             
                     
         if export_data is True:
@@ -266,7 +276,7 @@ class AMID():
         
         return sigdf
     
-    def plot_protocol(self, save=True, return_fig=False):
+    def plot_protocol(self, xlims=None, ylims=None, save=True, return_fig=False):
         
         with plt.style.context('grapher'):
         
@@ -315,6 +325,11 @@ class AMID():
                                 color='red',
                                 label='Sig Curves')
             plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
+            
+            if xlims is not None:
+                axs[1].set_xlim(xlims[0], xlims[1])
+            if ylims is not None:
+                axs[0].set_ylim(ylims[0], ylims[1])
             
             if save is True:
                 plt.savefig(self.dst / 'protocol_vis_{}.jpg'.format(self.cell_label))
@@ -381,12 +396,14 @@ class AMID():
             # if less than 3 data points, omit step.
             if len(currents) > 2:
                 currents = currents[1:-1]
-                diffQ = (stepcaps[1:] - stepcaps[:-1]) / (volts[1:] - volts[:-1])
-            #elif len(currents) == 2:
-            #    currents = currents[1:]
+                diffq = (stepcaps[1:] - stepcaps[:-1]) / (volts[1:] - volts[:-1])
+
             # if there is only 1 data point, don't use it.
             else:
                 continue
+            
+            #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
+            #    continue
                 
             if i == 0:
                 caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
@@ -394,7 +411,7 @@ class AMID():
                 cutvolts.append([volts[-2]])
                 currs.append([np.average(currents)])
                 ir.append([np.absolute(volts[0] - volts[1])])
-                dqdv.append([diffQ])
+                dqdv.append([diffq])
             else:
                 #if np.amax(currents) < currs[-1][-1]:
                 if np.average(currents) < currs[-1][-1]:
@@ -404,7 +421,7 @@ class AMID():
                     currs[-1].append(np.average(currents))
                     #currs[-1].append(np.amax(currents[1:]))
                     ir[-1].append(np.absolute(volts[0] - volts[1]))
-                    dqdv[-1].append(diffQ)
+                    dqdv[-1].append(diffq)
                 else:
                     if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
                         continue
@@ -414,7 +431,7 @@ class AMID():
                     cutvolts.append([volts[-2]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
-                    dqdv.append([diffQ])
+                    dqdv.append([diffq])
          
         print('Found {} signature curves.'.format(len(caps)))
         nvolts = len(caps)
@@ -459,6 +476,7 @@ class AMID():
         new_caps = []
         for i in range(nvolts):
             new_caps.append(1000*np.array(caps[i])/self.mass)
+        #print(new_caps)
 
         
         return new_caps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
@@ -466,7 +484,9 @@ class AMID():
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=None, D_guess=None, shape='sphere', corr=False,
                    nalpha=150, nQ=2000, save=True, label=None):
-        
+        ### TODO: Need to fix warnings that arise due to solving tau vs Q with the IR correction. 
+        #         When tau < 0 an optmimal solution can't be found - should try to adjust Q range 
+        #         on the fly or something.
         self.r = r
         
         if shape not in SHAPES:
@@ -500,7 +520,7 @@ class AMID():
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist = np.zeros(self.nvolts, dtype=float)
-        dQdV = np.zeros(self.nvolts, dtype=float)
+        dqdv = np.zeros(self.nvolts, dtype=float)
         sigma = np.zeros(self.nvolts, dtype=float)
         fit_err = np.zeros(self.nvolts, dtype=float)
         cap_max = np.zeros(self.nvolts, dtype=float)
@@ -517,18 +537,18 @@ class AMID():
             I = np.array(self.currs[j])*1000
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dQdV[j][-1])*1000/self.mass
-            dQdV[j] = np.average(self.dQdV[j][-1])*1000/self.mass
+            dqdv[j] = np.average(self.dqdv[j][-1])*1000/self.mass
             #print("dQ/dV: {} mAh/g/V".format(self._dqdv))
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
             
             if corr is False:
                 if D_bounds is None:
-                    bounds = ([1e-15, 0.6*np.amax(scap)],
-                              [1e-10, 1.1*np.amax(scap)])
+                    bounds = ([1e-15, 1.0*np.amax(scap)],
+                              [1e-84, 2.5*np.amax(scap)])
                 else:
-                    bounds = ([D_bounds[0], 0.6*np.amax(scap)],
-                              [D_bounds[1], 1.1*np.amax(scap)])
+                    bounds = ([D_bounds[0], 1.0*np.amax(scap)],
+                              [D_bounds[1], 2.5*np.amax(scap)])
                 if D_guess is None:   
                     p0 = [1e-13, np.amax(scap)]
                 else:
@@ -614,7 +634,7 @@ class AMID():
             #cols = ['Voltage', 'D']
         else:
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst,
-                                       'R_eff' : resist, 'dQdV': dQdV})
+                                       'R_eff' : resist, 'dQdV': dqdv})
             
         if label is None:
             df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
@@ -628,7 +648,7 @@ class AMID():
         print('Standard deviations from fit: {}'.format(sigma))
         print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist, dQdV
+        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist, dqdv
         
     def make_summary_graph(self, fit_data, save=True, label=None):
         
