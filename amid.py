@@ -546,27 +546,27 @@ class AMID():
             
             if corr is False:
                 if D_bounds is None:
-                    bounds = ([1e-15, 1.0*np.amax(scap)],
-                              [1e-84, 2.5*np.amax(scap)])
+                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap)],
+                              [np.log10(1e-10), 2.5*np.amax(scap)])
                 else:
-                    bounds = ([D_bounds[0], 1.0*np.amax(scap)],
-                              [D_bounds[1], 2.5*np.amax(scap)])
+                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap)],
+                              [np.log10(D_bounds[1]), 2.5*np.amax(scap)])
                 if D_guess is None:   
-                    p0 = [1e-13, np.amax(scap)]
+                    p0 = [np.log10(1e-13), np.amax(scap)]
                 else:
-                    p0 = [D_guess, np.amax(scap)]
+                    p0 = [np.log10(D_guess), np.amax(scap)]
                     
             else:
                 if D_bounds is None:
-                    bounds = ([1e-15, 0.5*np.amax(scap), 0.0],
-                              [1e-10, 1.1*np.amax(scap), 10.0])
+                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap), np.log10(1e-5)],
+                              [np.log10(1e-10), 2.5*np.amax(scap), np.log10(1e2)])
                 else:
-                    bounds = ([D_bounds[0], 0.5*np.amax(scap), 0.0],
-                              [D_bounds[1], 1.1*np.amax(scap), 10.0])
+                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap), np.log10(1e-5)],
+                              [np.log10(D_bounds[1]), 2.5*np.amax(scap), np.log10(1e2)])
                 if D_guess is None:   
-                    p0 = [1e-13, np.amax(scap), 1e-2]
+                    p0 = [np.log10(1e-13), np.amax(scap), np.log10(1e-2)]
                 else:
-                    p0 = [D_guess, np.amax(scap), 1e-2]
+                    p0 = [np.log10(D_guess), np.amax(scap), np.log10(1e-2)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -575,21 +575,22 @@ class AMID():
                     if corr is False:
                         popt, pcov = curve_fit(self._spheres, (scap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
-                                   method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap)],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                     else:
                         popt, pcov = curve_fit(self._spheres_corr, (scap, rates), z, p0=p0,
                                    bounds=bounds,
-                                   method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap), 1.],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap), 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                         print("Opt params: {}".format(popt))
-                        resist[j] = popt[-1]
+                        resist[j] = 10**popt[-1]
                         Q_arr = np.logspace(-3, 2, nQ)
                         tau_sol = np.zeros(nQ)
                         tau_guess = 0.5
                         for i in range(nQ):
                             Q = Q_arr[i]
-                            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + popt[-1]/Q
+                            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + 10**popt[-1]/Q if 10**popt[-1]<Q else tau
+
                             tau_sol[i] = fsolve(func, tau_guess, factor=1.)
                         
                 if shape == 'plane':
@@ -601,7 +602,7 @@ class AMID():
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 
                 sigma[j] = np.sqrt(np.diag(pcov))[0]
-                dconst[j] = popt[0]
+                dconst[j] = 10**popt[0]
                 Qfit = 3600*rates*dconst[j]/r**2
                 tau_fit = scap/popt[1]
                 
@@ -735,7 +736,9 @@ class AMID():
                 plt.show()
                 
 
-    def _spheres(self, X, D, c_max):
+    def _spheres(self, X, logD, c_max):
+        
+        D = 10**logD
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
@@ -744,7 +747,10 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, D, c_max, R_Ohm):
+    def _spheres_corr(self, X, logD, c_max, logR_Ohm):
+        
+        D = 10**logD
+        R_Ohm = 10**logR_Ohm
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
@@ -754,7 +760,9 @@ class AMID():
         #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + R_Ohm*self.r**2/(3600*n*D)
     
-    def _planes(self, X, D, c_max):
+    def _planes(self, X, logD, c_max):
+        
+        D = 10**logD
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
