@@ -152,8 +152,8 @@ class AMID():
                                 'Meas I (A)': 'Current',
                                 'Step Type': 'Step'},
                        inplace=True)
-        print(self.df.columns)
-        print(self.df.Step.unique())
+        #print(self.df.columns)
+        #print(self.df.Step.unique())
         # Add Prot_step column even if step num exists.
         s = self.df.Step
         self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
@@ -169,12 +169,14 @@ class AMID():
         t = self.df['Time'].values
         dt = t[1:] - t[:-1]
         inds = np.where(dt < 0.0)[0]
-        print('Indices being removed to time non-monotonicity: {}'.format(inds))
-        self.df = self.df.drop(inds+1)
+        if len(inds) > 0:
+            print('Indices being removed to time non-monotonicity: {}'.format(inds))
+            self.df = self.df.drop(inds+1)
         # Remove data where potential is negative.
         inds = self.df.index[self.df['Potential'] < 0.0].tolist()
-        print('Indices being removed due to negative voltage: {}'.format(inds))
-        self.df = self.df.drop(inds)
+        if len(inds) > 0:
+            print('Indices being removed due to negative voltage: {}'.format(inds))
+            self.df = self.df.drop(inds)
         
         #plt.plot(self.df['Capacity'], self.df['Potential'])
         
@@ -236,7 +238,7 @@ class AMID():
         steps = newdf['Step'].values
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
-        print(ocv_inds)
+        #print(ocv_inds)
         # Require a min of 3 OCV steps with the same step before and after
         # to qualify as a signature curve.
         #print(steps[2], steps[6])
