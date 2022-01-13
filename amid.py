@@ -636,7 +636,7 @@ class AMID():
             #cols = ['Voltage', 'D']
         else:
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst,
-                                       'R_eff' : resist, 'dQdV': dqdv})
+                                       'R_eff' : resist, 'dqdV': dqdv})
             
         if label is None:
             df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
