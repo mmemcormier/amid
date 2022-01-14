@@ -27,7 +27,7 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False):
+                 export_data=True, use_input_cap=False, fcap_min=0.025):
         
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
@@ -190,7 +190,10 @@ class AMID():
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.rates, self.eff_rates, self.currs, self.ir, self.dqdv, self.cvolts, self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
+        self.caps, self.rates, self.eff_rates, self.currs, self.ir, \
+        self.dqdv, self.cvolts, self.avg_volts, self.dvolts, \
+        self.vlabels = self._parse_sigcurves()
+        
         self.nvolts = len(self.caps)
 
         # Get cummulative specific and fractional capacities
@@ -202,7 +205,7 @@ class AMID():
             # Remove data where capacity is too small due to IR
             # i.e., voltage cutoff was reached immediately.
             #inds = np.where(self.scaps[i] < 0.075)[0]
-            inds = np.where(self.fcaps[i] < 0.01)[0]
+            inds = np.where(self.fcaps[i] < fcap_min)[0]
             if len(inds) > 0:
                 self.scaps[i] = np.delete(self.scaps[i], inds)
                 self.fcaps[i] = np.delete(self.fcaps[i], inds)
