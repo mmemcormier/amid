@@ -345,7 +345,7 @@ class AMID():
         
         with plt.style.context('grapher'):
             fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True,
-                                    figsize=(7, 8), gridspec_kw={'hspace':0.0})
+                                    figsize=(6, 7), gridspec_kw={'hspace':0.0})
             colors = plt.get_cmap('viridis')(np.linspace(0,1,self.nvolts))
             
             for i in range(self.nvolts):
@@ -354,9 +354,9 @@ class AMID():
                 axs[1].semilogx(self.eff_rates[i], self.fcaps[i],
                                 color=colors[i])
                 
-            axs[1].set_xlabel('n$_{eff}$ in C/n$_{eff}$')
-            axs[1].set_ylabel('Fractional Capacity')
-            axs[0].set_ylabel('Specific Capacity (mAh/g)')
+            axs[1].set_xlabel('n$_{eff}$ in C/n$_{eff}$', fontsize=16)
+            axs[1].set_ylabel('Fractional Capacity', fontsize=16)
+            axs[0].set_ylabel('Specific Capacity (mAh/g)', fontsize=16)
             axs[0].legend(frameon=False, bbox_to_anchor=(1.0, 0.0), loc='center left')
             axs[0].tick_params(direction='in', which='both', top=True, right=True)
             axs[1].tick_params(direction='in', which='both', top=True, right=True)
@@ -667,7 +667,7 @@ class AMID():
         dvolts = fit_data[8]
         
         with plt.style.context('grapher'):
-            fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(8, 12), sharex=True,
+            fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 11), sharex=True,
                             gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
             axs[0].semilogy(voltage, dconst, 'ko--', linewidth=0.75, label='{}'.format(self.cell_label))
             #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
