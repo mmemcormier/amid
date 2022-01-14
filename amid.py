@@ -201,7 +201,8 @@ class AMID():
             self.scaps.append(np.cumsum(self.caps[i]))
             # Remove data where capacity is too small due to IR
             # i.e., voltage cutoff was reached immediately.
-            inds = np.where(self.scaps[i] < 0.075)[0]
+            #inds = np.where(self.scaps[i] < 0.075)[0]
+            inds = np.where(self.fcaps[i] < 0.01)[0]
             if len(inds) > 0:
                 self.scaps[i] = np.delete(self.scaps[i], inds)
                 self.fcaps[i] = np.delete(self.fcaps[i], inds)
