@@ -165,18 +165,20 @@ class AMID():
             
         #self.df.columns = COLUMNS
         
-        # Remove data where time is not monotonically increasing.   
+        # Adjust data where time is not monotonically increasing.   
         t = self.df['Time'].values
+        cap = self.df['Capacity'].values
         dt = t[1:] - t[:-1]
         inds = np.where(dt < 0.0)[0]
         if len(inds) > 0:
-            print('Indices being removed to time non-monotonicity: {}'.format(inds))
-            self.df = self.df.drop(inds+1)
-        # Remove data where potential is negative.
+            print('Indices being adjusted due to time non-monotonicity: {}'.format(inds))
+            self.df['Time'][inds+1] = (t[inds] + t[inds+2])/2
+            self.df['Capacity'][inds+1] = (cap[inds] + cap[inds+2])/2
+        # Adjust data where potential is negative.
         inds = self.df.index[self.df['Potential'] < 0.0].tolist()
         if len(inds) > 0:
-            print('Indices being removed due to negative voltage: {}'.format(inds))
-            self.df = self.df.drop(inds)
+            print('Indices being adjusted due to negative voltage: {}'.format(inds))
+            self.df['Potential'][inds] = (t[inds-1] + t[inds+1])/2
         
         #plt.plot(self.df['Capacity'], self.df['Potential'])
         
@@ -214,6 +216,7 @@ class AMID():
                 self.ir[i] = np.delete(self.ir[i], inds)
                 self.currs[i] = np.delete(self.currs[i], inds)
                 self.dqdv[i] = np.delete(self.dqdv[i], inds)
+                print("Signature curve removed due to being below fcap min")
             
             
                     
@@ -399,22 +402,32 @@ class AMID():
             minarg = np.argmin(np.absolute(RATES - rate))
             
             # slice first and last current values if possible.
-            # if less than 3 data points, omit step.
-            if len(currents) > 2:
-                currents = currents[1:-1]
-                diffq = (stepcaps[1:] - stepcaps[:-1]) / (volts[1:] - volts[:-1])
-
-            # if there is only 1 data point, don't use it.
+            # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
+            if len(currents) > 3:
+                if volts[-2] == np.around(volts[-2], decimals=2):
+                    currents = currents[1:-1]
+                    cvoltind = -2
+                elif len(currents) > 4:
+                    if volts[-3] == np.around(volts[-3], decimals=2):
+                        currents = currents[1:-1]
+                        cvoltind = -3
+                    else:
+                        continue
+                else:
+                    continue
             else:
                 continue
+                
+            # determine dqdv based on the measurements before the voltage cutoff
+            diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
             
             #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
             #    continue
-                
-            if i == 0:
+        
+            if caps == []:
                 caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                 rates.append([RATES[minarg]])
-                cutvolts.append([volts[-2]])
+                cutvolts.append([volts[cvoltind]])
                 currs.append([np.average(currents)])
                 ir.append([np.absolute(volts[0] - volts[1])])
                 dqdv.append([diffq])
@@ -423,7 +436,7 @@ class AMID():
                 if np.average(currents) < currs[-1][-1]:
                     caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
                     rates[-1].append(RATES[minarg])
-                    cutvolts[-1].append(volts[-2])
+                    cutvolts[-1].append(volts[cvoltind])
                     currs[-1].append(np.average(currents))
                     #currs[-1].append(np.amax(currents[1:]))
                     ir[-1].append(np.absolute(volts[0] - volts[1]))
@@ -434,7 +447,7 @@ class AMID():
                     #print(np.average(currents), volts[-2])
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
-                    cutvolts.append([volts[-2]])
+                    cutvolts.append([volts[cvoltind]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
                     dqdv.append([diffq])
@@ -443,16 +456,22 @@ class AMID():
         nvolts = len(caps)
         cvolts = np.zeros(nvolts)
         for i in range(len(caps)):
-            v1 = np.around(cutvolts[-i-1][-1], decimals=2)
-            if i == 0:
-                cvolts[i] = v1
-            else:
-                v2 = np.around(cutvolts[-i][-1], decimals=2)
-                if v2 == v1:
-                    cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
-                else:
-                    cvolts[i] = v1
-        cvolts = cvolts[::-1]
+            if len(set(cutvolts[i])) != 1:
+                print("Different cutoff voltages detected within same interval")
+            cvolts[i] = np.average(cutvolts[i])
+            
+            #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
+            #if i == 0:
+                #cvolts[i] = v1
+            #else:
+                #v2 = np.around(cutvolts[-i][-1], decimals=2)
+                #if v2 == v1:
+                    #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
+                #else:
+                    #cvolts[i] = v1
+                    
+        #cvolts = cvolts[::-1]
+
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
         # Get midpoint voltage for each range.
@@ -484,7 +503,6 @@ class AMID():
             new_caps.append(1000*np.array(caps[i])/self.mass)
         #print(new_caps)
 
-        
         return new_caps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
        
 
@@ -541,8 +559,12 @@ class AMID():
             I = np.array(self.currs[j])*1000
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
-            dqdv[j] = np.average(self.dqdv[j][-1])*1000/self.mass
-            #print("dQ/dV: {} mAh/g/V".format(self._dqdv))
+            
+            # selects the dqdv of C/40 discharge/charge or nearest to C/40
+            rate = self.capacity / np.array(self.currs[j])
+            minarg = np.argmin(np.absolute(40 - rate))
+            dqdv[j] = self.dqdv[j][minarg]*1000/self.mass
+            #print("dq/dV: {} mAh/g/V".format(dqdv))
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
             
