@@ -217,8 +217,6 @@ class AMID():
                 self.currs[i] = np.delete(self.currs[i], inds)
                 self.dqdv[i] = np.delete(self.dqdv[i], inds)
                 print("Signature curve removed due to being below fcap min")
-            
-
                     
         if export_data is True:
             caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
@@ -563,8 +561,8 @@ class AMID():
             # selects the dqdv of C/40 discharge/charge or nearest to C/40
             rate = self.capacity / np.array(self.currs[j])
             minarg = np.argmin(np.absolute(40 - rate))
-            dqdv[j] = self.dqdv[j][minarg]*1000/self.mass
-            #print("dq/dV: {} mAh/g/V".format(dqdv))
+            dqdv[j] = self.dqdv[j][minarg]
+            #print("dq/dV: {} Ah/V".format(dqdv[j]))
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
             
@@ -643,9 +641,6 @@ class AMID():
                     error[k] = np.absolute(tau_fit[k] - tau_sol[minarg])
                 fit_err[j] = np.sum(weights*error)
                 
-                # get resist from resist_eff
-                resist = resist_eff*self.r**2 / (3600*dconst*dqdv)
-                
                 plt.semilogx(Qfit, tau_fit, 'or', label='{0} - {1}'.format(self.cell_label, self.vlabels[j]))
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
@@ -664,6 +659,10 @@ class AMID():
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
             #cols = ['Voltage', 'D']
         else:
+            # get resist from resist_eff
+            resist = resist_eff*self.r**2 / (3600*dconst*dqdv)
+            #print("Resist: {} V/A".format(resist))
+            
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst,
                                        'R_eff' : resist_eff, 'dqdV': dqdv, 'R' : resist})
         
@@ -761,11 +760,11 @@ class AMID():
             axs[5].tick_params(axis='x', which='minor', top=False, bottom=False)
             axs[5].set_xlabel('Voltage (V)', fontsize=12)
             axs[5].set_ylabel('R_eff', fontsize=12)
-            axs[6].plot(voltage, 1000*resist, 'kd--', linewidth=0.75)
+            axs[6].plot(voltage, resist, 'kd--', linewidth=0.75)
             axs[6].get_xaxis().set_ticks(voltage)
             axs[6].tick_params(axis='x', which='minor', top=False, bottom=False)
             axs[6].set_xlabel('Voltage (V)', fontsize=12)
-            axs[6].set_ylabel('R ($m\Omega$)', fontsize=12)
+            axs[6].set_ylabel('R ($\Omega$)', fontsize=12)
             axs[6].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
             
             if export_fig is True:
