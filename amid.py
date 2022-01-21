@@ -218,7 +218,7 @@ class AMID():
                 self.dqdv[i] = np.delete(self.dqdv[i], inds)
                 print("Signature curve removed due to being below fcap min")
             
-            
+
                     
         if export_data is True:
             caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
@@ -761,11 +761,11 @@ class AMID():
             axs[5].tick_params(axis='x', which='minor', top=False, bottom=False)
             axs[5].set_xlabel('Voltage (V)', fontsize=12)
             axs[5].set_ylabel('R_eff', fontsize=12)
-            axs[6].semilogy(voltage, resist, 'kd--', linewidth=0.75)
+            axs[6].plot(voltage, 1000*resist, 'kd--', linewidth=0.75)
             axs[6].get_xaxis().set_ticks(voltage)
             axs[6].tick_params(axis='x', which='minor', top=False, bottom=False)
             axs[6].set_xlabel('Voltage (V)', fontsize=12)
-            axs[6].set_ylabel('R ($\Omega$)', fontsize=12)
+            axs[6].set_ylabel('R ($m\Omega$)', fontsize=12)
             axs[6].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
             
             if export_fig is True:
