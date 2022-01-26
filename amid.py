@@ -27,8 +27,9 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False, fcap_min=0.025):
+                 export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False):
         
+        self.single_curr = single_current
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
         # If does not exist, create dir.
@@ -243,39 +244,44 @@ class AMID():
         steps = newdf['Step'].values
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
-        #print(ocv_inds)
-        # Require a min of 3 OCV steps with the same step before and after
-        # to qualify as a signature curve.
-        #print(steps[2], steps[6])
-        for i in range(len(ocv_inds)):
-            #print(ocv_inds[i], steps[ocv_inds[i] - 1], steps[ocv_inds[i+2] + 1])
-            if steps[ocv_inds[i] - 1] == steps[ocv_inds[i+2] + 1]:
-                first_sig_step = prosteps[ocv_inds[i] - 1]
-                break
         
-        #last_sig_step = None
-        for i in range(len(ocv_inds)):
-            ind = -i - 1
-            if steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] - 1]:
-                last_sig_step = prosteps[ocv_inds[ind] - 1]
-                break
-                
-            elif steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] + 2]:
-                last_sig_step = prosteps[ocv_inds[ind] + 1]
-                break
-                
-            #print(ocv_inds[-i-1], steps[ocv_inds[-i-1] - 1], steps[ocv_inds[-i-1] + 1])
-            #if len(steps) > ocv_inds[-i-1] + 3:
-            #    if steps[ocv_inds[-i-1]] != steps[ocv_inds[-i-1] + 2]:
-            #        last_sig_step = prosteps[ocv_inds[-i-1] + 1]
-            #        break
-            #if (steps[ocv_inds[-i-1] - 1] != steps[ocv_inds[-i-1] + 1]):
-            #    last_sig_step = prosteps[ocv_inds[-i-1] - 1]
-            #    break
-        #print(i)
-        if i == len(ocv_inds) - 1:
-            last_sig_step = prosteps[ocv_inds[-1] + 1]
-
+        if self.single_curr == False:
+            #print(ocv_inds)
+            # Require a min of 3 OCV steps with the same step before and after
+            # to qualify as a signature curve.
+            #print(steps[2], steps[6])
+            for i in range(len(ocv_inds)):
+                #print(ocv_inds[i], steps[ocv_inds[i] - 1], steps[ocv_inds[i+2] + 1])
+                if steps[ocv_inds[i] - 1] == steps[ocv_inds[i+2] + 1]:
+                    first_sig_step = prosteps[ocv_inds[i] - 1]
+                    break
+            
+            #last_sig_step = None
+            for i in range(len(ocv_inds)):
+                ind = -i - 1
+                if steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] - 1]:
+                    last_sig_step = prosteps[ocv_inds[ind] - 1]
+                    break
+                    
+                elif steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] + 2]:
+                    last_sig_step = prosteps[ocv_inds[ind] + 1]
+                    break
+                    
+                #print(ocv_inds[-i-1], steps[ocv_inds[-i-1] - 1], steps[ocv_inds[-i-1] + 1])
+                #if len(steps) > ocv_inds[-i-1] + 3:
+                #    if steps[ocv_inds[-i-1]] != steps[ocv_inds[-i-1] + 2]:
+                #        last_sig_step = prosteps[ocv_inds[-i-1] + 1]
+                #        break
+                #if (steps[ocv_inds[-i-1] - 1] != steps[ocv_inds[-i-1] + 1]):
+                #    last_sig_step = prosteps[ocv_inds[-i-1] - 1]
+                #    break
+            #print(i)
+            if i == len(ocv_inds) - 1:
+                last_sig_step = prosteps[ocv_inds[-1] + 1]
+        else:
+            #single_current sigcurves selection
+            print("single_current")
+        
         print('First signature curve step: {}'.format(first_sig_step))
         print('Last signature curve step: {}'.format(last_sig_step))
         
@@ -391,84 +397,89 @@ class AMID():
         currs = []
         ir = []
         dqdv = []
-        for i in range(nsig):
-            step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
-            stepcaps = step['Capacity'].values
-            volts = step['Potential'].values
-            currents = np.absolute(step['Current'].values)
-            rate = self.capacity / np.average(currents)
-            minarg = np.argmin(np.absolute(RATES - rate))
-            
-            # slice first and last current values if possible.
-            # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
-            if len(currents) > 3:
-                if volts[-2] == np.around(volts[-2], decimals=2):
-                    currents = currents[1:-1]
-                    cvoltind = -2
-                elif len(currents) > 4:
-                    if volts[-3] == np.around(volts[-3], decimals=2):
+        
+        if self.single_curr == False:
+            for i in range(nsig):
+                step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
+                stepcaps = step['Capacity'].values
+                volts = step['Potential'].values
+                currents = np.absolute(step['Current'].values)
+                rate = self.capacity / np.average(currents)
+                minarg = np.argmin(np.absolute(RATES - rate))
+                
+                # slice first and last current values if possible.
+                # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
+                if len(currents) > 3:
+                    if volts[-2] == np.around(volts[-2], decimals=2):
                         currents = currents[1:-1]
-                        cvoltind = -3
+                        cvoltind = -2
+                    elif len(currents) > 4:
+                        if volts[-3] == np.around(volts[-3], decimals=2):
+                            currents = currents[1:-1]
+                            cvoltind = -3
+                        else:
+                            continue
                     else:
                         continue
                 else:
                     continue
-            else:
-                continue
+                    
+                # determine dqdv based on the measurements before the voltage cutoff
+                diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
                 
-            # determine dqdv based on the measurements before the voltage cutoff
-            diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
+                #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
+                #    continue
             
-            #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
-            #    continue
-        
-            if caps == []:
-                caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
-                rates.append([RATES[minarg]])
-                cutvolts.append([volts[cvoltind]])
-                currs.append([np.average(currents)])
-                ir.append([np.absolute(volts[0] - volts[1])])
-                dqdv.append([diffq])
-            else:
-                #if np.amax(currents) < currs[-1][-1]:
-                if np.average(currents) < currs[-1][-1]:
-                    caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
-                    rates[-1].append(RATES[minarg])
-                    cutvolts[-1].append(volts[cvoltind])
-                    currs[-1].append(np.average(currents))
-                    #currs[-1].append(np.amax(currents[1:]))
-                    ir[-1].append(np.absolute(volts[0] - volts[1]))
-                    dqdv[-1].append(diffq)
-                else:
-                    if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
-                        continue
-                    #print(np.average(currents), volts[-2])
+                if caps == []:
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
                     cutvolts.append([volts[cvoltind]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
                     dqdv.append([diffq])
-         
-        print('Found {} signature curves.'.format(len(caps)))
-        nvolts = len(caps)
-        cvolts = np.zeros(nvolts)
-        for i in range(len(caps)):
-            if len(set(cutvolts[i])) != 1:
-                print("Different cutoff voltages detected within same interval")
-            cvolts[i] = np.average(cutvolts[i])
-            
-            #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
-            #if i == 0:
-                #cvolts[i] = v1
-            #else:
-                #v2 = np.around(cutvolts[-i][-1], decimals=2)
-                #if v2 == v1:
-                    #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
-                #else:
+                else:
+                    #if np.amax(currents) < currs[-1][-1]:
+                    if np.average(currents) < currs[-1][-1]:
+                        caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
+                        rates[-1].append(RATES[minarg])
+                        cutvolts[-1].append(volts[cvoltind])
+                        currs[-1].append(np.average(currents))
+                        #currs[-1].append(np.amax(currents[1:]))
+                        ir[-1].append(np.absolute(volts[0] - volts[1]))
+                        dqdv[-1].append(diffq)
+                    else:
+                        if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
+                            continue
+                        #print(np.average(currents), volts[-2])
+                        caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
+                        rates.append([RATES[minarg]])
+                        cutvolts.append([volts[cvoltind]])
+                        currs.append([np.average(currents)])
+                        ir.append([np.absolute(volts[0] - volts[1])])
+                        dqdv.append([diffq])
+             
+            print('Found {} signature curves.'.format(len(caps)))
+            nvolts = len(caps)
+            cvolts = np.zeros(nvolts)
+            for i in range(len(caps)):
+                if len(set(cutvolts[i])) != 1:
+                    print("Different cutoff voltages detected within same interval")
+                cvolts[i] = np.average(cutvolts[i])
+                
+                #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
+                #if i == 0:
                     #cvolts[i] = v1
-                    
-        #cvolts = cvolts[::-1]
+                #else:
+                    #v2 = np.around(cutvolts[-i][-1], decimals=2)
+                    #if v2 == v1:
+                        #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
+                    #else:
+                        #cvolts[i] = v1
+                        
+            #cvolts = cvolts[::-1]
+        else:
+            #single_current sigcurve parsing
+            print("single_current")
 
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
@@ -558,9 +569,13 @@ class AMID():
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
             
-            # selects the dqdv of C/40 discharge/charge or nearest to C/40
-            rate = self.capacity / np.array(self.currs[j])
-            minarg = np.argmin(np.absolute(40 - rate))
+            if self.single_curr == False:
+                # selects the dqdv of C/40 discharge/charge or nearest to C/40
+                act_rates = self.capacity / np.array(self.currs[j])
+                minarg = np.argmin(np.absolute(40 - act_rates))
+            else:
+                minarg = -1
+            
             dqdv[j] = self.dqdv[j][minarg]
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             C = np.sum(self.ir[j])
