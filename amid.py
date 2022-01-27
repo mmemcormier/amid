@@ -151,13 +151,16 @@ class AMID():
                                 'Current (A)': 'Current',
                                 'Cycle Number': 'Cycle',
                                 'Meas I (A)': 'Current',
-                                'Step Type': 'Step'},
+                                'Step Type': 'Step',
+                                'Prot.Step': 'Prot_step',
+                                'Step Number': 'Prot_step'},
                        inplace=True)
-        #print(self.df.columns)
+        print(self.df.columns)
         #print(self.df.Step.unique())
-        # Add Prot_step column even if step num exists.
-        s = self.df.Step
-        self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
+        # Add Prot_step column if column does not yet exist.
+        if 'Prot_step' not in self.df.columns:
+            s = self.df.Step
+            self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
 
         #if hline[-4:] == 'Flag':
         #    self.df = self.df.rename(columns={'Flag':'Prot.Step'})
@@ -188,7 +191,7 @@ class AMID():
         self.sc_stepnums = self.sigdf['Prot_step'].unique()
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
-        print('Specific Capacity achieved in advanced protocol: {0:.2f} mAh/g'.format(self.spec_cap*1000))
+        print('Specific Capacity achieved in advanced protocol (signature curves): {0:.2f} mAh/g'.format(self.spec_cap*1000))
         if use_input_cap is True:
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
@@ -280,7 +283,17 @@ class AMID():
                 last_sig_step = prosteps[ocv_inds[-1] + 1]
         else:
             #single_current sigcurves selection
-            print("single_current")
+            for i in range(len(ocv_inds)):
+                if i == len(ocv_inds):
+                    print("No adjacent OCV steps detected. Protocol is likely not single_current")
+                    break
+                if ocv_inds[i] == ocv_inds[i+1] - 1:
+                    first_sig_step = prosteps[ocv_inds[i] - 1]
+                    break
+            for i in range(len(ocv_inds)):
+                if ocv_inds[-i] == ocv_inds[-i-1] + 1:
+                    last_sig_step = prosteps[ocv_inds[-i]]
+                    break    
         
         print('First signature curve step: {}'.format(first_sig_step))
         print('Last signature curve step: {}'.format(last_sig_step))
@@ -386,7 +399,7 @@ class AMID():
         Vstart = np.around(sigs['Potential'].values[0], decimals=2)
         Vend = np.around(sigs['Potential'].values[-1], decimals=2)
         print('Starting voltage: {:.3f} V'.format(Vstart))
-        print('Ending voltage: {:.3f}'.format(Vend))
+        print('Ending voltage: {:.3f} V'.format(Vend))
         
         sigsteps = sigs['Prot_step'].unique()
         nsig = len(sigsteps)
