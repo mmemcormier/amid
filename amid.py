@@ -595,10 +595,10 @@ class AMID():
         cap_span = np.zeros(self.nvolts, dtype=float)
 
         for j in range(self.nvolts):
-            z = np.ones(len(self.scaps[j]))
+            z = np.ones(len(self.fcaps[j]))
             #fcap = np.array(self.fcaps[j])
-            scap = np.array(self.scaps[j])
-            self._max_cap = scap[-1]
+            fcap = np.array(self.fcaps[j])
+            self._max_cap = self.scaps[j][-1]
             #print('Max cap: {} mAh/g'.format(self._max_cap))
             rates = np.array(self.eff_rates[j])
             I = np.array(self.currs[j])*1000
@@ -619,41 +619,41 @@ class AMID():
             
             if corr is False:
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap)],
-                              [np.log10(1e-10), 2.5*np.amax(scap)])
+                    bounds = ([np.log10(1e-15), 0.95],
+                              [np.log10(1e-10), 2.5])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap)],
-                              [np.log10(D_bounds[1]), 2.5*np.amax(scap)])
+                    bounds = ([np.log10(D_bounds[0]), 0.95],
+                              [np.log10(D_bounds[1]), 2.5])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), np.amax(scap)]
+                    p0 = [np.log10(1e-13), 1.0]
                 else:
-                    p0 = [np.log10(D_guess), np.amax(scap)]
+                    p0 = [np.log10(D_guess), 1.0]
                     
             else:
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap), np.log10(1e-5)],
-                              [np.log10(1e-10), 2.5*np.amax(scap), np.log10(1e2)])
+                    bounds = ([np.log10(1e-15), 0.95, np.log10(1e-5)],
+                              [np.log10(1e-10), 2.5, np.log10(1e2)])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap), np.log10(1e-5)],
-                              [np.log10(D_bounds[1]), 2.5*np.amax(scap), np.log10(1e2)])
+                    bounds = ([np.log10(D_bounds[0]), 0.95, np.log10(1e-5)],
+                              [np.log10(D_bounds[1]), 2.5, np.log10(1e2)])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), np.amax(scap), np.log10(1e-2)]
+                    p0 = [np.log10(1e-13), 1.0, np.log10(1e-2)]
                 else:
-                    p0 = [np.log10(D_guess), np.amax(scap), np.log10(1e-2)]
+                    p0 = [np.log10(D_guess), 1.0, np.log10(1e-2)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
                 
                 if shape == 'sphere':
                     if corr is False:
-                        popt, pcov = curve_fit(self._spheres, (scap, rates), z, p0=p0,
+                        popt, pcov = curve_fit(self._spheres, (fcap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
-                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap)],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                     else:
-                        popt, pcov = curve_fit(self._spheres_corr, (scap, rates), z, p0=p0,
+                        popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0,
                                    bounds=bounds,
-                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap), 1.0],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                         print("Opt params: {}".format(popt))
                         resist_eff[j] = 10**popt[-1]
@@ -667,9 +667,9 @@ class AMID():
                             tau_sol[i] = fsolve(func, tau_guess, factor=1.)
                         
                 if shape == 'plane':
-                    popt, pcov = curve_fit(self._planes, (scap, rates), z, p0=p0,
+                    popt, pcov = curve_fit(self._planes, (fcap, rates), z, p0=p0,
                                bounds=bounds, sigma=weights,
-                               method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
+                               method='trf', max_nfev=5000, x_scale=[1e-11, 1.0],
                                ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                 
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
@@ -677,7 +677,7 @@ class AMID():
                 sigma[j] = np.sqrt(np.diag(pcov))[0]
                 dconst[j] = 10**popt[0]
                 Qfit = 3600*rates*dconst[j]/r**2
-                tau_fit = scap/popt[1]
+                tau_fit = fcap/popt[1]
                 
                 cap_max[j] = tau_fit[-1]
                 cap_min[j] = tau_fit[0]
