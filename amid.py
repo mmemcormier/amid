@@ -155,7 +155,7 @@ class AMID():
                                 'Prot.Step': 'Prot_step',
                                 'Step Number': 'Prot_step'},
                        inplace=True)
-        print(self.df.columns)
+        #print(self.df.columns)
         #print(self.df.Step.unique())
         # Add Prot_step column if column does not yet exist.
         if 'Prot_step' not in self.df.columns:
@@ -284,7 +284,7 @@ class AMID():
         else:
             #single_current sigcurves selection
             for i in range(len(ocv_inds)):
-                if i == len(ocv_inds):
+                if i+1 == len(ocv_inds):
                     print("No adjacent OCV steps detected. Protocol is likely not single_current")
                     break
                 if ocv_inds[i] == ocv_inds[i+1] - 1:
@@ -493,6 +493,24 @@ class AMID():
         else:
             #single_current sigcurve parsing
             print("single_current")
+            for i in range(nsig):
+                step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
+                stepcaps = step['Capacity'].values
+                volts = step['Potential'].values
+                currents = np.absolute(step['Current'].values)
+                
+                ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
+                ocvstepcaps = ocvstep['Capacity'].values
+                ocvvolts = ocvstep['Potential'].values
+                
+                dqdv.append((stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1]))
+                
+                caps = []
+                rates = []
+                cutvolts = []
+                currs = []
+                ir = []
+            
 
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
@@ -512,13 +530,18 @@ class AMID():
         
         eff_rates = []
         vcaps = np.zeros(nvolts, dtype=float)
+        ccaps = np.zeros(nvolts, dtype=float)
         for m in range(nvolts):
             nrates = len(currs[m])
             #nrates = len(rates[m])
             eff_rates.append([])
             vcaps[m] = np.sum(caps[m])
+            ccaps[m] = np.cumsum(caps[m])
             for n in range(nrates):
-                eff_rates[-1].append(vcaps[m]/currs[m][n])           
+                if self.single_curr == False:
+                    eff_rates[-1].append(vcaps[m]/currs[m][n])      
+                else:
+                    eff_rates[-1].append(ccaps[m][n]/currs[m][n])
         
         new_caps = []
         for i in range(nvolts):
@@ -586,10 +609,10 @@ class AMID():
                 # selects the dqdv of C/40 discharge/charge or nearest to C/40
                 act_rates = self.capacity / np.array(self.currs[j])
                 minarg = np.argmin(np.absolute(40 - act_rates))
+                dqdv[j] = self.dqdv[j][minarg]
             else:
-                minarg = -1
+                dqdv[j] = self.dqdv[j]
             
-            dqdv[j] = self.dqdv[j][minarg]
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             C = np.sum(self.ir[j])
             weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
