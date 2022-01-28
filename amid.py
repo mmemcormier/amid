@@ -530,13 +530,13 @@ class AMID():
         
         eff_rates = []
         vcaps = np.zeros(nvolts, dtype=float)
-        ccaps = np.zeros(nvolts, dtype=float)
+        ccaps = []
         for m in range(nvolts):
             nrates = len(currs[m])
             #nrates = len(rates[m])
             eff_rates.append([])
             vcaps[m] = np.sum(caps[m])
-            ccaps[m] = np.cumsum(caps[m])
+            ccaps.append(np.cumsum(caps[m]))
             for n in range(nrates):
                 if self.single_curr == False:
                     eff_rates[-1].append(vcaps[m]/currs[m][n])      
