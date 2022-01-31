@@ -30,6 +30,7 @@ class AMID():
                  export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False):
         
         self.single_curr = single_current
+        self.fcap_min = fcap_min
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
         # If does not exist, create dir.
@@ -196,31 +197,11 @@ class AMID():
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.rates, self.eff_rates, self.currs, self.ir, \
-        self.dqdv, self.cvolts, self.avg_volts, self.dvolts, \
-        self.vlabels = self._parse_sigcurves()
+        self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, \
+        self.currs, self.ir, self.dqdv, self.cvolts, self.avg_volts, \
+        self.dvolts, self.vlabels = self._parse_sigcurves()
         
         self.nvolts = len(self.caps)
-
-        # Get cummulative specific and fractional capacities
-        self.scaps = []
-        self.fcaps = []
-        for i in range(self.nvolts):
-            self.fcaps.append(np.cumsum(self.caps[i]) / np.sum(self.caps[i]))
-            self.scaps.append(np.cumsum(self.caps[i]))
-            # Remove data where capacity is too small due to IR
-            # i.e., voltage cutoff was reached immediately.
-            #inds = np.where(self.scaps[i] < 0.075)[0]
-            inds = np.where(self.fcaps[i] < fcap_min)[0]
-            if len(inds) > 0:
-                self.scaps[i] = np.delete(self.scaps[i], inds)
-                self.fcaps[i] = np.delete(self.fcaps[i], inds)
-                self.eff_rates[i] = np.delete(self.eff_rates[i], inds)
-                self.rates[i] = np.delete(self.rates[i], inds)
-                self.ir[i] = np.delete(self.ir[i], inds)
-                self.currs[i] = np.delete(self.currs[i], inds)
-                self.dqdv[i] = np.delete(self.dqdv[i], inds)
-                print("Signature curve removed due to being below fcap min")
                     
         if export_data is True:
             caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
@@ -405,6 +386,8 @@ class AMID():
         nsig = len(sigsteps)
         print('Found {} charge or discharge steps in sig curve sequences.'.format(nsig))
         caps = []
+        scaps = []
+        fcaps = []
         rates = []
         cutvolts = []
         currs = []
@@ -490,6 +473,22 @@ class AMID():
                         #cvolts[i] = v1
                         
             #cvolts = cvolts[::-1]
+            for i in range(nvolts):
+                fcaps.append(np.cumsum(caps[i]) / np.sum(caps[i]))
+                scaps.append(np.cumsum(caps[i]))
+                # Remove data where capacity is too small due to IR
+                # i.e., voltage cutoff was reached immediately.
+                #inds = np.where(self.scaps[i] < 0.075)[0]
+                inds = np.where(fcaps[i] < self.fcap_min)[0]
+                if len(inds) > 0:
+                    caps[i] = np.delete(caps[i], inds)
+                    scaps[i] = np.delete(scaps[i], inds)
+                    fcaps[i] = np.delete(fcaps[i], inds)
+                    rates[i] = np.delete(rates[i], inds)
+                    ir[i] = np.delete(ir[i], inds)
+                    currs[i] = np.delete(currs[i], inds)
+                    dqdv[i] = np.delete(dqdv[i], inds)
+                    print("Signature curve removed due to being below fcap min")
         else:
             #single_current sigcurve parsing
             print("single_current")
@@ -544,11 +543,13 @@ class AMID():
                     eff_rates[-1].append(ccaps[m][n]/currs[m][n])
         
         new_caps = []
+        new_scaps = []
         for i in range(nvolts):
             new_caps.append(1000*np.array(caps[i])/self.mass)
+            new_scaps.append(1000*np.array(scaps[i])/self.mass)
         #print(new_caps)
 
-        return new_caps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
        
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=None, D_guess=None, shape='sphere', corr=False,
