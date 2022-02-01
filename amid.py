@@ -377,8 +377,8 @@ class AMID():
         sigs = self.sigdf.loc[self.sigdf['Step'] != 0]
         #capacity = sigs['Capacity'].max() - sigs['Capacity'].min()
         #print('Specific Capacity: {} mAh'.format(capacity))
-        Vstart = np.around(sigs['Potential'].values[0], decimals=2)
-        Vend = np.around(sigs['Potential'].values[-1], decimals=2)
+        Vstart = np.around(sigs['Potential'].values[0], decimals=3)
+        Vend = np.around(sigs['Potential'].values[-1], decimals=3)
         print('Starting voltage: {:.3f} V'.format(Vstart))
         print('Ending voltage: {:.3f} V'.format(Vend))
         
@@ -393,6 +393,7 @@ class AMID():
         currs = []
         ir = []
         dqdv = []
+        eff_rates = []
         
         if self.single_curr == False:
             for i in range(nsig):
@@ -453,29 +454,14 @@ class AMID():
                         currs.append([np.average(currents)])
                         ir.append([np.absolute(volts[0] - volts[1])])
                         dqdv.append([diffq])
-             
-            print('Found {} signature curves.'.format(len(caps)))
-            nvolts = len(caps)
-            cvolts = np.zeros(nvolts)
-            for i in range(len(caps)):
-                if len(set(cutvolts[i])) != 1:
-                    print("Different cutoff voltages detected within same interval")
-                cvolts[i] = np.average(cutvolts[i])
-                
-                #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
-                #if i == 0:
-                    #cvolts[i] = v1
-                #else:
-                    #v2 = np.around(cutvolts[-i][-1], decimals=2)
-                    #if v2 == v1:
-                        #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
-                    #else:
-                        #cvolts[i] = v1
-                        
-            #cvolts = cvolts[::-1]
+            
+            nvolts = len(caps)  
             for i in range(nvolts):
                 fcaps.append(np.cumsum(caps[i]) / np.sum(caps[i]))
                 scaps.append(np.cumsum(caps[i]))
+                
+                eff_rates.append(scaps[i][-1]/currs[i])
+                
                 # Remove data where capacity is too small due to IR
                 # i.e., voltage cutoff was reached immediately.
                 #inds = np.where(self.scaps[i] < 0.075)[0]
@@ -491,7 +477,7 @@ class AMID():
                     print("Signature curve removed due to being below fcap min")
         else:
             #single_current sigcurve parsing
-            print("single_current")
+            icaps = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
                 stepcaps = step['Capacity'].values
@@ -499,18 +485,51 @@ class AMID():
                 currents = np.absolute(step['Current'].values)
                 
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
+                if ocvstep['Step'].values[0] != 0:
+                    ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
                 ocvstepcaps = ocvstep['Capacity'].values
                 ocvvolts = ocvstep['Potential'].values
                 
-                dqdv.append((stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1]))
+                ir.append([np.absolute(volts[1] - volts[0])])
                 
-                caps = []
-                rates = []
-                cutvolts = []
-                currs = []
-                ir = []
-            
+                dqdv.append([(stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1])])
+                
+                caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
+                scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
+                icaps.append(dqdv[-1][0]*(volts[0] - volts[1:]))
+                fcaps.append(caps[i]/icaps[i])
+                nvolts = len(caps)
+                
+                currs.append([])
+                for j in range(len(currents[1:])):
+                    currs[-1].append(np.average(currents[1:j+2]))
+                    minarg = np.argmin(np.absolute(RATES - self.capacity / currs[-1][j]))
+                    if j == 0:
+                        rates.append([RATES[minarg]])
+                    else:
+                        rates[-1].append(RATES[minarg])
+                        
+                eff_rates.append(icaps[i]/currs[i])
+                cutvolts.append([ocvvolts[-1]]) 
 
+        print('Found {} signature curves.'.format(nvolts))
+        cvolts = np.zeros(nvolts)
+        for i in range(nvolts):
+            if len(set(cutvolts[i])) != 1:
+                print("Different cutoff voltages detected within same interval")
+            cvolts[i] = np.average(cutvolts[i])
+        
+                #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
+        #if i == 0:
+            #cvolts[i] = v1
+        #else:
+            #v2 = np.around(cutvolts[-i][-1], decimals=2)
+            #if v2 == v1:
+                #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
+            #else:
+                #cvolts[i] = v1
+        #cvolts = cvolts[::-1]
+        
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
         # Get midpoint voltage for each range.
@@ -526,21 +545,6 @@ class AMID():
         vlabels = vlabels + ['{0:.2f} V - {1:.2f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
         print('Voltage interval labels: {}'.format(vlabels))
         print('Found {} voltage intervals.'.format(nvolts))
-        
-        eff_rates = []
-        vcaps = np.zeros(nvolts, dtype=float)
-        ccaps = []
-        for m in range(nvolts):
-            nrates = len(currs[m])
-            #nrates = len(rates[m])
-            eff_rates.append([])
-            vcaps[m] = np.sum(caps[m])
-            ccaps.append(np.cumsum(caps[m]))
-            for n in range(nrates):
-                if self.single_curr == False:
-                    eff_rates[-1].append(vcaps[m]/currs[m][n])      
-                else:
-                    eff_rates[-1].append(ccaps[m][n]/currs[m][n])
         
         new_caps = []
         new_scaps = []
@@ -612,18 +616,18 @@ class AMID():
                 minarg = np.argmin(np.absolute(40 - act_rates))
                 dqdv[j] = self.dqdv[j][minarg]
             else:
-                dqdv[j] = self.dqdv[j]
+                dqdv[j] = self.dqdv[j][0]
             
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
-            C = np.sum(self.ir[j])
-            weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
             
             if corr is False:
+                C = np.sum(self.ir[j])
+                weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95],
+                    bounds = ([np.log10(1e-15), 0.5],
                               [np.log10(1e-10), 2.5])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95],
+                    bounds = ([np.log10(D_bounds[0]), 0.5],
                               [np.log10(D_bounds[1]), 2.5])
                 if D_guess is None:   
                     p0 = [np.log10(1e-13), 1.0]
@@ -631,16 +635,17 @@ class AMID():
                     p0 = [np.log10(D_guess), 1.0]
                     
             else:
+                weights = np.ones(len(self.ir[j]))
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95, np.log10(1e-5)],
-                              [np.log10(1e-10), 2.5, np.log10(1e2)])
+                    bounds = ([np.log10(1e-15), 0.5, np.log10(1e-5)],
+                              [np.log10(1e-8), 2.5, np.log10(1e2)])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95, np.log10(1e-5)],
+                    bounds = ([np.log10(D_bounds[0]), 0.5, np.log10(1e-5)],
                               [np.log10(D_bounds[1]), 2.5, np.log10(1e2)])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), 1.0, np.log10(1e-2)]
+                    p0 = [np.log10(1e-12), 1.0, np.log10(1e-3)]
                 else:
-                    p0 = [np.log10(D_guess), 1.0, np.log10(1e-2)]
+                    p0 = [np.log10(D_guess), 1.0, np.log10(1e-3)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -852,8 +857,15 @@ class AMID():
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
+        result = []
+        for i in range(len(c)):
+            if R_Ohm>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
+                result.append(c[i]/c_max + 1)
+            else:
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_Ohm*self.r**2/(3600*n[i]*D))
+        
         #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
-        return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + R_Ohm*self.r**2/(3600*n*D)
+        return result
     
     def _planes(self, X, logD, c_max):
         
