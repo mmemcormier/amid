@@ -800,9 +800,16 @@ class AMID():
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
+        result = []
+        for i in range(len(c)):
+            if R_Ohm>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
+                result.append(c[i]/c_max + 1)
+            else:
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_Ohm*self.r**2/(3600*n[i]*D))
+
         #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
-        return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + R_Ohm*self.r**2/(3600*n*D)
-    
+        return result
+            
     def _planes(self, X, logD, c_max):
         
         D = 10**logD
