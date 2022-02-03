@@ -91,7 +91,8 @@ class AMID():
                 headlines.append(lines[i])
                 l = lines[i].strip().split()
                 if l[0][:6] == '[Data]':
-                    hline = lines[i+1]
+                    hline = lines[i+1].strip().split(",")
+                    nlabels = len(hline)
                     nskip = i+1
                     break
             
@@ -138,7 +139,8 @@ class AMID():
         print('Input cell capacity: {} Ah'.format(self.input_cap))
         
         if bytesIO is None:
-            self.df = pd.read_csv(self.uhpc_file, header=nskip)
+            self.df = pd.read_csv(self.uhpc_file, header=nskip,
+                                  usecols=np.arange(0, nlabels))
             #self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
         else:
             self.df = pd.read_csv(bytesIO, header=hlinenum)
