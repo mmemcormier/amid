@@ -476,14 +476,16 @@ class AMID():
                     dqdv[i] = np.delete(dqdv[i], inds)
                     print("Signature curve removed due to being below fcap min")
         else:
-            #single_current sigcurve parsing
+            #icaps is the idealized capacity for a given voltage based upon dqdv
             icaps = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
+                #step = step.loc[step['Potential'] > step['Potential'].values[-1] + 0.01]
                 stepcaps = step['Capacity'].values
                 volts = step['Potential'].values
                 currents = np.absolute(step['Current'].values)
                 
+                #Collect preceding OCV steps (1 OCV or 2 OCV) to calculate dqdv
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
                 if ocvstep['Step'].values[0] != 0:
                     ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
@@ -585,7 +587,6 @@ class AMID():
             tau_sol = np.zeros(nQ)
             tau_guess = 0.5
             for i in range(nQ):
-                Q = Q_arr[i]
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
         
@@ -620,32 +621,39 @@ class AMID():
             
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
+            def_D_bounds = [1e-15, 1e-8]
+            def_maxfcap_bounds = [0.9999, 1.0]
+            def_R_eff_bounds = [1e-5, 1e2]
+            def_D_guess = 1e-12
+            def_maxfcap_guess = 1.0
+            def_R_eff_guess = 1e-3
+            
             if corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.5],
-                              [np.log10(1e-10), 2.5])
+                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0]],
+                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1]])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.5],
-                              [np.log10(D_bounds[1]), 2.5])
+                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0]],
+                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1]])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), 1.0]
+                    p0 = [np.log10(def_D_guess), def_maxfcap_guess]
                 else:
-                    p0 = [np.log10(D_guess), 1.0]
+                    p0 = [np.log10(D_guess), def_maxfcap_guess]
                     
             else:
                 weights = np.ones(len(self.ir[j]))
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.5, np.log10(1e-5)],
-                              [np.log10(1e-8), 2.5, np.log10(1e2)])
+                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
+                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.5, np.log10(1e-5)],
-                              [np.log10(D_bounds[1]), 2.5, np.log10(1e2)])
+                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
+                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-12), 1.0, np.log10(1e-3)]
+                    p0 = [np.log10(def_D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
                 else:
-                    p0 = [np.log10(D_guess), 1.0, np.log10(1e-3)]
+                    p0 = [np.log10(D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -847,24 +855,25 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, logD, c_max, logR_Ohm):
+    def _spheres_corr(self, X, logD, c_max, logR_eff):
         
         D = 10**logD
-        R_Ohm = 10**logR_Ohm
+        R_eff = 10**logR_eff
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
+        #Calculate error as c[i]/c_max + 1 if R_eff/Q > 1 AND fitted fcap is less than 0.05. This avoids the divergent region where tau=0 but infinit summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_Ohm>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
                 result.append(c[i]/c_max + 1)
             else:
-                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_Ohm*self.r**2/(3600*n[i]*D))
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
         
-        #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
+        #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_eff/self._max_cap
         return result
     
     def _planes(self, X, logD, c_max):
