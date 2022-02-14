@@ -587,12 +587,14 @@ class AMID():
             tau_sol = np.zeros(nQ)
             tau_guess = 0.5
             for i in range(nQ):
+                Q = Q_arr[i]
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
         
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
+        resist = np.zeros(self.nvolts, dtype=float)
         dqdv = np.zeros(self.nvolts, dtype=float)
         sigma = np.zeros(self.nvolts, dtype=float)
         fit_err = np.zeros(self.nvolts, dtype=float)
@@ -622,7 +624,7 @@ class AMID():
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
             def_D_bounds = [1e-15, 1e-8]
-            def_maxfcap_bounds = [0.9999, 1.0]
+            def_maxfcap_bounds = [0.5, 2.5]
             def_R_eff_bounds = [1e-5, 1e2]
             def_D_guess = 1e-12
             def_maxfcap_guess = 1.0
