@@ -642,8 +642,7 @@ class AMID():
                 if D_guess is None:   
                     p0 = [np.log10(def_D_guess), def_maxfcap_guess]
                 else:
-                    p0 = [np.log10(D_guess), def_maxfcap_guess]
-                    
+                    p0 = [np.log10(D_guess), def_maxfcap_guess]    
             else:
                 weights = np.ones(len(self.ir[j]))
                 if D_bounds is None:
