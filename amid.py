@@ -626,7 +626,7 @@ class AMID():
             def_D_bounds = [1e-15, 1e-8]
             def_maxfcap_bounds = [0.5, 2.5]
             def_R_eff_bounds = [1e-5, 1e2]
-            def_D_guess = 1e-12
+            def_D_guess = 1e-15
             def_maxfcap_guess = 1.0
             def_R_eff_guess = 1e-3
             
@@ -694,6 +694,9 @@ class AMID():
                 dconst[j] = 10**popt[0]
                 Qfit = 3600*rates*dconst[j]/r**2
                 tau_fit = fcap/popt[1]
+                
+                print(self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]))
+                print(sum((self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]) - z)**2))
                 
                 cap_max[j] = tau_fit[-1]
                 cap_min[j] = tau_fit[0]
@@ -870,8 +873,10 @@ class AMID():
         #Calculate error as c[i]/c_max + 1 if R_eff/Q > 1 AND fitted fcap is less than 0.05. This avoids the divergent region where tau=0 but infinit summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
-                result.append(c[i]/c_max + 1)
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05:
+                nlim = R_eff/(3600*D)
+                nlimarr = nlim*np.ones(len(self.alphas))
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*nlim*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*nlimarr*D/self.r**2)/a[i]))) + 1)
             else:
                 result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
         
