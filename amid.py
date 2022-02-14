@@ -540,6 +540,7 @@ class AMID():
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
+        resist = np.zeros(self.nvolts, dtype=float)
         dqdv = np.zeros(self.nvolts, dtype=float)
         sigma = np.zeros(self.nvolts, dtype=float)
         fit_err = np.zeros(self.nvolts, dtype=float)
@@ -568,10 +569,10 @@ class AMID():
             
             if corr is False:
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap)],
+                    bounds = ([np.log10(1e-15), 0.5*np.amax(scap)],
                               [np.log10(1e-10), 2.5*np.amax(scap)])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap)],
+                    bounds = ([np.log10(D_bounds[0]), 0.5*np.amax(scap)],
                               [np.log10(D_bounds[1]), 2.5*np.amax(scap)])
                 if D_guess is None:   
                     p0 = [np.log10(1e-13), np.amax(scap)]
@@ -580,10 +581,10 @@ class AMID():
                     
             else:
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.95*np.amax(scap), np.log10(1e-5)],
+                    bounds = ([np.log10(1e-15), 0.5*np.amax(scap), np.log10(1e-5)],
                               [np.log10(1e-10), 2.5*np.amax(scap), np.log10(1e2)])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.95*np.amax(scap), np.log10(1e-5)],
+                    bounds = ([np.log10(D_bounds[0]), 0.5*np.amax(scap), np.log10(1e-5)],
                               [np.log10(D_bounds[1]), 2.5*np.amax(scap), np.log10(1e2)])
                 if D_guess is None:   
                     p0 = [np.log10(1e-13), np.amax(scap), np.log10(1e-2)]
