@@ -27,8 +27,10 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False, fcap_min=0.025):
+                 export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False):
         
+        self.single_curr = single_current
+        self.fcap_min = fcap_min
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
         # If does not exist, create dir.
@@ -150,13 +152,16 @@ class AMID():
                                 'Current (A)': 'Current',
                                 'Cycle Number': 'Cycle',
                                 'Meas I (A)': 'Current',
-                                'Step Type': 'Step'},
+                                'Step Type': 'Step',
+                                'Prot.Step': 'Prot_step',
+                                'Step Number': 'Prot_step'},
                        inplace=True)
         #print(self.df.columns)
         #print(self.df.Step.unique())
-        # Add Prot_step column even if step num exists.
-        s = self.df.Step
-        self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
+        # Add Prot_step column if column does not yet exist.
+        if 'Prot_step' not in self.df.columns:
+            s = self.df.Step
+            self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
 
         #if hline[-4:] == 'Flag':
         #    self.df = self.df.rename(columns={'Flag':'Prot.Step'})
@@ -187,36 +192,16 @@ class AMID():
         self.sc_stepnums = self.sigdf['Prot_step'].unique()
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
-        print('Specific Capacity achieved in advanced protocol: {0:.2f} mAh/g'.format(self.spec_cap*1000))
+        print('Specific Capacity achieved in advanced protocol (signature curves): {0:.2f} mAh/g'.format(self.spec_cap*1000))
         if use_input_cap is True:
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.rates, self.eff_rates, self.currs, self.ir, \
-        self.dqdv, self.cvolts, self.avg_volts, self.dvolts, \
-        self.vlabels = self._parse_sigcurves()
+        self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, \
+        self.currs, self.ir, self.dqdv, self.cvolts, self.avg_volts, \
+        self.dvolts, self.vlabels = self._parse_sigcurves()
         
         self.nvolts = len(self.caps)
-
-        # Get cummulative specific and fractional capacities
-        self.scaps = []
-        self.fcaps = []
-        for i in range(self.nvolts):
-            self.fcaps.append(np.cumsum(self.caps[i]) / np.sum(self.caps[i]))
-            self.scaps.append(np.cumsum(self.caps[i]))
-            # Remove data where capacity is too small due to IR
-            # i.e., voltage cutoff was reached immediately.
-            #inds = np.where(self.scaps[i] < 0.075)[0]
-            inds = np.where(self.fcaps[i] < fcap_min)[0]
-            if len(inds) > 0:
-                self.scaps[i] = np.delete(self.scaps[i], inds)
-                self.fcaps[i] = np.delete(self.fcaps[i], inds)
-                self.eff_rates[i] = np.delete(self.eff_rates[i], inds)
-                self.rates[i] = np.delete(self.rates[i], inds)
-                self.ir[i] = np.delete(self.ir[i], inds)
-                self.currs[i] = np.delete(self.currs[i], inds)
-                self.dqdv[i] = np.delete(self.dqdv[i], inds)
-                print("Signature curve removed due to being below fcap min")
                     
         if export_data is True:
             caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
@@ -243,39 +228,54 @@ class AMID():
         steps = newdf['Step'].values
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
-        #print(ocv_inds)
-        # Require a min of 3 OCV steps with the same step before and after
-        # to qualify as a signature curve.
-        #print(steps[2], steps[6])
-        for i in range(len(ocv_inds)):
-            #print(ocv_inds[i], steps[ocv_inds[i] - 1], steps[ocv_inds[i+2] + 1])
-            if steps[ocv_inds[i] - 1] == steps[ocv_inds[i+2] + 1]:
-                first_sig_step = prosteps[ocv_inds[i] - 1]
-                break
         
-        #last_sig_step = None
-        for i in range(len(ocv_inds)):
-            ind = -i - 1
-            if steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] - 1]:
-                last_sig_step = prosteps[ocv_inds[ind] - 1]
-                break
-                
-            elif steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] + 2]:
-                last_sig_step = prosteps[ocv_inds[ind] + 1]
-                break
-                
-            #print(ocv_inds[-i-1], steps[ocv_inds[-i-1] - 1], steps[ocv_inds[-i-1] + 1])
-            #if len(steps) > ocv_inds[-i-1] + 3:
-            #    if steps[ocv_inds[-i-1]] != steps[ocv_inds[-i-1] + 2]:
-            #        last_sig_step = prosteps[ocv_inds[-i-1] + 1]
-            #        break
-            #if (steps[ocv_inds[-i-1] - 1] != steps[ocv_inds[-i-1] + 1]):
-            #    last_sig_step = prosteps[ocv_inds[-i-1] - 1]
-            #    break
-        #print(i)
-        if i == len(ocv_inds) - 1:
-            last_sig_step = prosteps[ocv_inds[-1] + 1]
-
+        if self.single_curr == False:
+            #print(ocv_inds)
+            # Require a min of 3 OCV steps with the same step before and after
+            # to qualify as a signature curve.
+            #print(steps[2], steps[6])
+            for i in range(len(ocv_inds)):
+                #print(ocv_inds[i], steps[ocv_inds[i] - 1], steps[ocv_inds[i+2] + 1])
+                if steps[ocv_inds[i] - 1] == steps[ocv_inds[i+2] + 1]:
+                    first_sig_step = prosteps[ocv_inds[i] - 1]
+                    break
+            
+            #last_sig_step = None
+            for i in range(len(ocv_inds)):
+                ind = -i - 1
+                if steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] - 1]:
+                    last_sig_step = prosteps[ocv_inds[ind] - 1]
+                    break
+                    
+                elif steps[ocv_inds[ind] + 1] != steps[ocv_inds[ind] + 2]:
+                    last_sig_step = prosteps[ocv_inds[ind] + 1]
+                    break
+                    
+                #print(ocv_inds[-i-1], steps[ocv_inds[-i-1] - 1], steps[ocv_inds[-i-1] + 1])
+                #if len(steps) > ocv_inds[-i-1] + 3:
+                #    if steps[ocv_inds[-i-1]] != steps[ocv_inds[-i-1] + 2]:
+                #        last_sig_step = prosteps[ocv_inds[-i-1] + 1]
+                #        break
+                #if (steps[ocv_inds[-i-1] - 1] != steps[ocv_inds[-i-1] + 1]):
+                #    last_sig_step = prosteps[ocv_inds[-i-1] - 1]
+                #    break
+            #print(i)
+            if i == len(ocv_inds) - 1:
+                last_sig_step = prosteps[ocv_inds[-1] + 1]
+        else:
+            #single_current sigcurves selection
+            for i in range(len(ocv_inds)):
+                if i+1 == len(ocv_inds):
+                    print("No adjacent OCV steps detected. Protocol is likely not single_current")
+                    break
+                if ocv_inds[i] == ocv_inds[i+1] - 1:
+                    first_sig_step = prosteps[ocv_inds[i] - 1]
+                    break
+            for i in range(len(ocv_inds)):
+                if ocv_inds[-i] == ocv_inds[-i-1] + 1:
+                    last_sig_step = prosteps[ocv_inds[-i]]
+                    break    
+        
         print('First signature curve step: {}'.format(first_sig_step))
         print('Last signature curve step: {}'.format(last_sig_step))
         
@@ -377,99 +377,161 @@ class AMID():
         sigs = self.sigdf.loc[self.sigdf['Step'] != 0]
         #capacity = sigs['Capacity'].max() - sigs['Capacity'].min()
         #print('Specific Capacity: {} mAh'.format(capacity))
-        Vstart = np.around(sigs['Potential'].values[0], decimals=2)
-        Vend = np.around(sigs['Potential'].values[-1], decimals=2)
+        Vstart = np.around(sigs['Potential'].values[0], decimals=3)
+        Vend = np.around(sigs['Potential'].values[-1], decimals=3)
         print('Starting voltage: {:.3f} V'.format(Vstart))
-        print('Ending voltage: {:.3f}'.format(Vend))
+        print('Ending voltage: {:.3f} V'.format(Vend))
         
         sigsteps = sigs['Prot_step'].unique()
         nsig = len(sigsteps)
         print('Found {} charge or discharge steps in sig curve sequences.'.format(nsig))
         caps = []
+        scaps = []
+        fcaps = []
         rates = []
         cutvolts = []
         currs = []
         ir = []
         dqdv = []
-        for i in range(nsig):
-            step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
-            stepcaps = step['Capacity'].values
-            volts = step['Potential'].values
-            currents = np.absolute(step['Current'].values)
-            rate = self.capacity / np.average(currents)
-            minarg = np.argmin(np.absolute(RATES - rate))
-            
-            # slice first and last current values if possible.
-            # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
-            if len(currents) > 3:
-                if volts[-2] == np.around(volts[-2], decimals=2):
-                    currents = currents[1:-1]
-                    cvoltind = -2
-                elif len(currents) > 4:
-                    if volts[-3] == np.around(volts[-3], decimals=2):
+        eff_rates = []
+        
+        if self.single_curr == False:
+            for i in range(nsig):
+                step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
+                stepcaps = step['Capacity'].values
+                volts = step['Potential'].values
+                currents = np.absolute(step['Current'].values)
+                rate = self.capacity / np.average(currents)
+                minarg = np.argmin(np.absolute(RATES - rate))
+                
+                # slice first and last current values if possible.
+                # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
+                if len(currents) > 3:
+                    if volts[-2] == np.around(volts[-2], decimals=2):
                         currents = currents[1:-1]
-                        cvoltind = -3
+                        cvoltind = -2
+                    elif len(currents) > 4:
+                        if volts[-3] == np.around(volts[-3], decimals=2):
+                            currents = currents[1:-1]
+                            cvoltind = -3
+                        else:
+                            continue
                     else:
                         continue
                 else:
                     continue
-            else:
-                continue
+                    
+                # determine dqdv based on the measurements before the voltage cutoff
+                diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
                 
-            # determine dqdv based on the measurements before the voltage cutoff
-            diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
+                #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
+                #    continue
             
-            #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
-            #    continue
-        
-            if caps == []:
-                caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
-                rates.append([RATES[minarg]])
-                cutvolts.append([volts[cvoltind]])
-                currs.append([np.average(currents)])
-                ir.append([np.absolute(volts[0] - volts[1])])
-                dqdv.append([diffq])
-            else:
-                #if np.amax(currents) < currs[-1][-1]:
-                if np.average(currents) < currs[-1][-1]:
-                    caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
-                    rates[-1].append(RATES[minarg])
-                    cutvolts[-1].append(volts[cvoltind])
-                    currs[-1].append(np.average(currents))
-                    #currs[-1].append(np.amax(currents[1:]))
-                    ir[-1].append(np.absolute(volts[0] - volts[1]))
-                    dqdv[-1].append(diffq)
-                else:
-                    if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
-                        continue
-                    #print(np.average(currents), volts[-2])
+                if caps == []:
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
                     cutvolts.append([volts[cvoltind]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
                     dqdv.append([diffq])
-         
-        print('Found {} signature curves.'.format(len(caps)))
-        nvolts = len(caps)
+                else:
+                    #if np.amax(currents) < currs[-1][-1]:
+                    if np.average(currents) < currs[-1][-1]:
+                        caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
+                        rates[-1].append(RATES[minarg])
+                        cutvolts[-1].append(volts[cvoltind])
+                        currs[-1].append(np.average(currents))
+                        #currs[-1].append(np.amax(currents[1:]))
+                        ir[-1].append(np.absolute(volts[0] - volts[1]))
+                        dqdv[-1].append(diffq)
+                    else:
+                        if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
+                            continue
+                        #print(np.average(currents), volts[-2])
+                        caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
+                        rates.append([RATES[minarg]])
+                        cutvolts.append([volts[cvoltind]])
+                        currs.append([np.average(currents)])
+                        ir.append([np.absolute(volts[0] - volts[1])])
+                        dqdv.append([diffq])
+            
+            nvolts = len(caps)  
+            for i in range(nvolts):
+                fcaps.append(np.cumsum(caps[i]) / np.sum(caps[i]))
+                scaps.append(np.cumsum(caps[i]))
+                
+                eff_rates.append(scaps[i][-1]/currs[i])
+                
+                # Remove data where capacity is too small due to IR
+                # i.e., voltage cutoff was reached immediately.
+                #inds = np.where(self.scaps[i] < 0.075)[0]
+                inds = np.where(fcaps[i] < self.fcap_min)[0]
+                if len(inds) > 0:
+                    caps[i] = np.delete(caps[i], inds)
+                    scaps[i] = np.delete(scaps[i], inds)
+                    fcaps[i] = np.delete(fcaps[i], inds)
+                    rates[i] = np.delete(rates[i], inds)
+                    ir[i] = np.delete(ir[i], inds)
+                    currs[i] = np.delete(currs[i], inds)
+                    dqdv[i] = np.delete(dqdv[i], inds)
+                    print("Signature curve removed due to being below fcap min")
+        else:
+            #icaps is the idealized capacity for a given voltage based upon dqdv
+            icaps = []
+            for i in range(nsig):
+                step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
+                #step = step.loc[step['Potential'] > step['Potential'].values[-1] + 0.01]
+                stepcaps = step['Capacity'].values
+                volts = step['Potential'].values
+                currents = np.absolute(step['Current'].values)
+                
+                #Collect preceding OCV steps (1 OCV or 2 OCV) to calculate dqdv
+                ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
+                if ocvstep['Step'].values[0] != 0:
+                    ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
+                ocvstepcaps = ocvstep['Capacity'].values
+                ocvvolts = ocvstep['Potential'].values
+                
+                ir.append([np.absolute(volts[1] - volts[0])])
+                
+                dqdv.append([(stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1])])
+                
+                caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
+                scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
+                icaps.append(dqdv[-1][0]*(volts[0] - volts[1:]))
+                fcaps.append(caps[i]/icaps[i])
+                nvolts = len(caps)
+                
+                currs.append([])
+                for j in range(len(currents[1:])):
+                    currs[-1].append(np.average(currents[1:j+2]))
+                    minarg = np.argmin(np.absolute(RATES - self.capacity / currs[-1][j]))
+                    if j == 0:
+                        rates.append([RATES[minarg]])
+                    else:
+                        rates[-1].append(RATES[minarg])
+                        
+                eff_rates.append(icaps[i]/currs[i])
+                cutvolts.append([ocvvolts[-1]]) 
+
+        print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
-        for i in range(len(caps)):
+        for i in range(nvolts):
             if len(set(cutvolts[i])) != 1:
                 print("Different cutoff voltages detected within same interval")
             cvolts[i] = np.average(cutvolts[i])
-            
-            #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
-            #if i == 0:
-                #cvolts[i] = v1
+        
+                #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
+        #if i == 0:
+            #cvolts[i] = v1
+        #else:
+            #v2 = np.around(cutvolts[-i][-1], decimals=2)
+            #if v2 == v1:
+                #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
             #else:
-                #v2 = np.around(cutvolts[-i][-1], decimals=2)
-                #if v2 == v1:
-                    #cvolts[i] = 2*cvolts[i-1] - cvolts[i-2]
-                #else:
-                    #cvolts[i] = v1
-                    
+                #cvolts[i] = v1
         #cvolts = cvolts[::-1]
-
+        
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
         # Get midpoint voltage for each range.
@@ -486,22 +548,14 @@ class AMID():
         print('Voltage interval labels: {}'.format(vlabels))
         print('Found {} voltage intervals.'.format(nvolts))
         
-        eff_rates = []
-        vcaps = np.zeros(nvolts, dtype=float)
-        for m in range(nvolts):
-            nrates = len(currs[m])
-            #nrates = len(rates[m])
-            eff_rates.append([])
-            vcaps[m] = np.sum(caps[m])
-            for n in range(nrates):
-                eff_rates[-1].append(vcaps[m]/currs[m][n])           
-        
         new_caps = []
+        new_scaps = []
         for i in range(nvolts):
             new_caps.append(1000*np.array(caps[i])/self.mass)
+            new_scaps.append(1000*np.array(scaps[i])/self.mass)
         #print(new_caps)
 
-        return new_caps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
        
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=None, D_guess=None, shape='sphere', corr=False,
@@ -549,61 +603,72 @@ class AMID():
         cap_span = np.zeros(self.nvolts, dtype=float)
 
         for j in range(self.nvolts):
-            z = np.ones(len(self.scaps[j]))
+            z = np.ones(len(self.fcaps[j]))
             #fcap = np.array(self.fcaps[j])
-            scap = np.array(self.scaps[j])
-            self._max_cap = scap[-1]
+            fcap = np.array(self.fcaps[j])
+            self._max_cap = self.scaps[j][-1]
             #print('Max cap: {} mAh/g'.format(self._max_cap))
             rates = np.array(self.eff_rates[j])
             I = np.array(self.currs[j])*1000
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
             
-            # selects the dqdv of C/40 discharge/charge or nearest to C/40
-            rate = self.capacity / np.array(self.currs[j])
-            minarg = np.argmin(np.absolute(40 - rate))
-            dqdv[j] = self.dqdv[j][minarg]
+            if self.single_curr == False:
+                # selects the dqdv of C/40 discharge/charge or nearest to C/40
+                act_rates = self.capacity / np.array(self.currs[j])
+                minarg = np.argmin(np.absolute(40 - act_rates))
+                dqdv[j] = self.dqdv[j][minarg]
+            else:
+                dqdv[j] = self.dqdv[j][0]
+            
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
-            C = np.sum(self.ir[j])
-            weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
+            
+            def_D_bounds = [1e-15, 1e-8]
+            def_maxfcap_bounds = [0.5, 2.5]
+            def_R_eff_bounds = [1e-5, 1e2]
+            def_D_guess = 1e-15
+            def_maxfcap_guess = 1.0
+            def_R_eff_guess = 1e-3
             
             if corr is False:
+                C = np.sum(self.ir[j])
+                weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.5*np.amax(scap)],
-                              [np.log10(1e-10), 2.5*np.amax(scap)])
+                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0]],
+                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1]])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.5*np.amax(scap)],
-                              [np.log10(D_bounds[1]), 2.5*np.amax(scap)])
+                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0]],
+                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1]])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), np.amax(scap)]
+                    p0 = [np.log10(def_D_guess), def_maxfcap_guess]
                 else:
-                    p0 = [np.log10(D_guess), np.amax(scap)]
-                    
+                    p0 = [np.log10(D_guess), def_maxfcap_guess]    
             else:
+                weights = np.ones(len(self.ir[j]))
                 if D_bounds is None:
-                    bounds = ([np.log10(1e-15), 0.5*np.amax(scap), np.log10(1e-5)],
-                              [np.log10(1e-10), 2.5*np.amax(scap), np.log10(1e2)])
+                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
+                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
                 else:
-                    bounds = ([np.log10(D_bounds[0]), 0.5*np.amax(scap), np.log10(1e-5)],
-                              [np.log10(D_bounds[1]), 2.5*np.amax(scap), np.log10(1e2)])
+                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
+                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
                 if D_guess is None:   
-                    p0 = [np.log10(1e-13), np.amax(scap), np.log10(1e-2)]
+                    p0 = [np.log10(def_D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
                 else:
-                    p0 = [np.log10(D_guess), np.amax(scap), np.log10(1e-2)]
+                    p0 = [np.log10(D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
                 
                 if shape == 'sphere':
                     if corr is False:
-                        popt, pcov = curve_fit(self._spheres, (scap, rates), z, p0=p0,
+                        popt, pcov = curve_fit(self._spheres, (fcap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
-                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap)],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                     else:
-                        popt, pcov = curve_fit(self._spheres_corr, (scap, rates), z, p0=p0,
+                        popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0,
                                    bounds=bounds,
-                                   method='trf', max_nfev=5000, x_scale=[1.0, np.amax(scap), 1.0],
+                                   method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                         print("Opt params: {}".format(popt))
                         resist_eff[j] = 10**popt[-1]
@@ -617,9 +682,9 @@ class AMID():
                             tau_sol[i] = fsolve(func, tau_guess, factor=1.)
                         
                 if shape == 'plane':
-                    popt, pcov = curve_fit(self._planes, (scap, rates), z, p0=p0,
+                    popt, pcov = curve_fit(self._planes, (fcap, rates), z, p0=p0,
                                bounds=bounds, sigma=weights,
-                               method='trf', max_nfev=5000, x_scale=[1e-11, np.amax(scap)],
+                               method='trf', max_nfev=5000, x_scale=[1e-11, 1.0],
                                ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                 
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
@@ -627,7 +692,10 @@ class AMID():
                 sigma[j] = np.sqrt(np.diag(pcov))[0]
                 dconst[j] = 10**popt[0]
                 Qfit = 3600*rates*dconst[j]/r**2
-                tau_fit = scap/popt[1]
+                tau_fit = fcap/popt[1]
+                
+                print(self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]))
+                print(sum((self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]) - z)**2))
                 
                 cap_max[j] = tau_fit[-1]
                 cap_min[j] = tau_fit[0]
@@ -791,26 +859,29 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, logD, c_max, logR_Ohm):
+    def _spheres_corr(self, X, logD, c_max, logR_eff):
         
         D = 10**logD
-        R_Ohm = 10**logR_Ohm
+        R_eff = 10**logR_eff
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
+        #Calculate error as c[i]/c_max + 1 if R_eff/Q > 1 AND fitted fcap is less than 0.05. This avoids the divergent region where tau=0 but infinit summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_Ohm>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05 :
-                result.append(c[i]/c_max + 1)
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05:
+                nlim = R_eff/(3600*D)
+                nlimarr = nlim*np.ones(len(self.alphas))
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*nlim*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*nlimarr*D/self.r**2)/a[i]))) + 1)
             else:
-                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_Ohm*self.r**2/(3600*n[i]*D))
-
-        #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_Ohm/self._max_cap
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
+        
+        #return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1))) + self._dqdv*I*R_eff/self._max_cap
         return result
-            
+    
     def _planes(self, X, logD, c_max):
         
         D = 10**logD
