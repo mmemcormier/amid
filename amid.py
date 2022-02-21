@@ -8,6 +8,7 @@ Created on Tue May  4 07:44:54 2021
 
 import pandas as pd
 import numpy as np
+import sys
 from scipy.optimize import curve_fit, fsolve
 from pathlib import Path
 import re
@@ -158,7 +159,11 @@ class AMID():
                        inplace=True)
         #print(self.df.columns)
         #print(self.df.Step.unique())
-        # Add Prot_step column if column does not yet exist.
+        
+        if single_current == True and spliced == True:
+            sys.exit("single_current cannot operate on spliced files. Manually clean up your spliced file and select spliced = false")
+        
+        # Add Prot_step column if column does not yet exist or spliced file is used.
         if 'Prot_step' not in self.df.columns or spliced == True:
             s = self.df.Step
             self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
