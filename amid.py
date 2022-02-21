@@ -27,7 +27,7 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False):
+                 export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False, spliced = False):
         
         self.single_curr = single_current
         self.fcap_min = fcap_min
@@ -159,7 +159,7 @@ class AMID():
         #print(self.df.columns)
         #print(self.df.Step.unique())
         # Add Prot_step column if column does not yet exist.
-        if 'Prot_step' not in self.df.columns:
+        if 'Prot_step' not in self.df.columns or spliced == True:
             s = self.df.Step
             self.df['Prot_step'] = s.ne(s.shift()).cumsum() - 1
 
