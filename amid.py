@@ -497,6 +497,20 @@ class AMID():
                 ocvstepcaps = ocvstep['Capacity'].values
                 ocvvolts = ocvstep['Potential'].values
                 
+                # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
+                if len(currents) > 3:
+                    if volts[-2] == np.around(volts[-2], decimals=2):
+                        cvoltind = -2
+                    elif len(currents) > 4:
+                        if volts[-3] == np.around(volts[-3], decimals=2):
+                            cvoltind = -3
+                        else:
+                            continue
+                    else:
+                        continue
+                else:
+                    continue
+                
                 ir.append([np.absolute(volts[1] - volts[0])])
                 
                 dqdv.append([(stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1])])
@@ -504,8 +518,6 @@ class AMID():
                 caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 icaps.append(dqdv[-1][0]*(volts[0] - volts[1:]))
-                fcaps.append(caps[i]/icaps[i])
-                nvolts = len(caps)
                 
                 currs.append([])
                 for j in range(len(currents[1:])):
@@ -516,8 +528,12 @@ class AMID():
                     else:
                         rates[-1].append(RATES[minarg])
                         
-                eff_rates.append(icaps[i]/currs[i])
                 cutvolts.append([ocvvolts[-1]]) 
+                
+            nvolts = len(caps)
+            for i in range(nvolts):              
+                fcaps.append(caps[i]/icaps[i])        
+                eff_rates.append(icaps[i]/currs[i])
 
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
@@ -629,7 +645,7 @@ class AMID():
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
             def_D_bounds = [1e-15, 1e-8]
-            def_maxfcap_bounds = [0.5, 2.5]
+            def_maxfcap_bounds = [1, 1.00001]
             def_R_eff_bounds = [1e-5, 1e2]
             def_D_guess = 1e-15
             def_maxfcap_guess = 1.0
@@ -699,8 +715,8 @@ class AMID():
                 Qfit = 3600*rates*dconst[j]/r**2
                 tau_fit = fcap/popt[1]
                 
-                print(self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]))
-                print(sum((self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]) - z)**2))
+                #print(self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]))
+                #print(sum((self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]) - z)**2))
                 
                 cap_max[j] = tau_fit[-1]
                 cap_min[j] = tau_fit[0]
