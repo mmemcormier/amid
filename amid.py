@@ -28,7 +28,7 @@ SHAPES = ['sphere', 'plane']
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False, fcap_min=0.025, single_current=False, spliced = False):
+                 export_data=True, use_input_cap=False, fcap_min=0.0, single_current=False, spliced=False):
         
         self.single_curr = single_current
         self.fcap_min = fcap_min
