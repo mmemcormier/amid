@@ -604,6 +604,7 @@ class AMID():
                 
         # Solve for tau vs Q
         if corr is False:
+            print("Opt params: [LogD, fCapAdj]")
             Q_arr = np.logspace(-3, 2, nQ)
             tau_sol = np.zeros(nQ)
             tau_guess = 0.5
@@ -611,6 +612,9 @@ class AMID():
                 Q = Q_arr[i]
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
+        else:
+            print("Opt params: [LogD, fCapAdj, log(D-Reff), Log(Reff)]")
+
         
                 
         dconst = np.zeros(self.nvolts, dtype=float)
@@ -687,10 +691,15 @@ class AMID():
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                     else:
-                        popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0,
-                                   bounds=bounds,
+                        p0corr = [p0[0], p0[1], p0[2] - p0[0]]
+                        boundscorr = [[bounds[0][0], bounds[0][1], bounds[0][2] - bounds[1][0]], 
+                                      [bounds[1][0], bounds[1][1], bounds[1][2] - bounds[0][0]]]
+                        
+                        popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0corr,
+                                   bounds=boundscorr,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                        popt = np.append(popt, popt[2] + popt[0])
                         print("Opt params: {}".format(popt))
                         resist_eff[j] = 10**popt[-1]
                         Q_arr = np.logspace(-3, 2, nQ)
@@ -880,10 +889,10 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, logD, c_max, logR_eff):
+    def _spheres_corr(self, X, logD, c_max, logR_effMinusD):
         
         D = 10**logD
-        R_eff = 10**logR_eff
+        R_eff = 10**(logR_effMinusD + logD)
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
@@ -891,12 +900,12 @@ class AMID():
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
         #Calculates inacessible capacity as ~1 
-        #if R_eff/Q > 1 AND fitted fcap is less than 0.01 
+        #if R_eff/Q > 1 AND fitted fcap is less than 0.01 AND fcap is less than 0.1 of largest fcap 
         #by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
         #This avoids the divergent region where tau=0 but infinite summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.01 and len(c) != i+1:
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.01 and c[i]/max(c) < 0.1:
                 nlim = R_eff/(3600*D)*self.r**2
                 nlimarr = nlim*np.ones(len(self.alphas))
                 result.append(c[i]/c_max + ((self.r**2)/(3*3600*nlim*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*nlimarr*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*nlim*D))
