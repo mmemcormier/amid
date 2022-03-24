@@ -564,8 +564,8 @@ class AMID():
         dvolts[1:] = np.absolute(cvolts[:-1] - cvolts[1:])
         print('Voltage intervals widths: {}'.format(dvolts))
         # Make voltage interval labels for legend.
-        vlabels = ['{0:.2f} V - {1:.2f} V'.format(Vstart, cvolts[0])]
-        vlabels = vlabels + ['{0:.2f} V - {1:.2f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
+        vlabels = ['{0:.3f} V - {1:.3f} V'.format(Vstart, cvolts[0])]
+        vlabels = vlabels + ['{0:.3f} V - {1:.3f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
         print('Voltage interval labels: {}'.format(vlabels))
         print('Found {} voltage intervals.'.format(nvolts))
         
@@ -644,10 +644,10 @@ class AMID():
             
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
-            def_D_bounds = [1e-15, 1e-8]
+            def_D_bounds = [1e-16, 1e-8]
             def_maxfcap_bounds = [1, 1.00001]
-            def_R_eff_bounds = [1e-5, 1e2]
-            def_D_guess = 1e-15
+            def_R_eff_bounds = [1e-6, 1e1]
+            def_D_guess = 1e-16
             def_maxfcap_guess = 1.0
             def_R_eff_guess = 1e-3
             
@@ -890,13 +890,16 @@ class AMID():
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
-        #Calculate error as c[i]/c_max + 1 if R_eff/Q > 1 AND fitted fcap is less than 0.05. This avoids the divergent region where tau=0 but infinit summation error is amplified. 
+        #Calculates inacessible capacity as ~1 
+        #if R_eff/Q > 1 AND fitted fcap is less than 0.01 
+        #by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
+        #This avoids the divergent region where tau=0 but infinite summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.05:
-                nlim = R_eff/(3600*D)
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/c_max < 0.01 and len(c) != i+1:
+                nlim = R_eff/(3600*D)*self.r**2
                 nlimarr = nlim*np.ones(len(self.alphas))
-                result.append(c[i]/c_max + ((self.r**2)/(3*3600*nlim*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*nlimarr*D/self.r**2)/a[i]))) + 1)
+                result.append(c[i]/c_max + ((self.r**2)/(3*3600*nlim*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*nlimarr*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*nlim*D))
             else:
                 result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
         
