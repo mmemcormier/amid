@@ -631,10 +631,10 @@ class AMID():
             z = np.ones(len(self.fcaps[j]))
             #fcap = np.array(self.fcaps[j])
             fcap = np.array(self.fcaps[j])
-            self._max_cap = self.scaps[j][-1]
+            #self._max_cap = self.scaps[j][-1]
             #print('Max cap: {} mAh/g'.format(self._max_cap))
             rates = np.array(self.eff_rates[j])
-            I = np.array(self.currs[j])*1000
+            #I = np.array(self.currs[j])*1000
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
             
@@ -651,9 +651,9 @@ class AMID():
             def_D_bounds = [1e-16, 1e-8]
             def_maxfcap_bounds = [1, 1.00001]
             def_R_eff_bounds = [1e-6, 1e1]
-            def_D_guess = 1e-16
+            def_D_guess = 1e-13
             def_maxfcap_guess = 1.0
-            def_R_eff_guess = 1e-3
+            def_R_eff_guess = 1e-2
             
             if corr is False:
                 C = np.sum(self.ir[j])
@@ -702,7 +702,7 @@ class AMID():
                         popt = np.append(popt, popt[2] + popt[0])
                         print("Opt params: {}".format(popt))
                         resist_eff[j] = 10**popt[-1]
-                        Q_arr = np.logspace(-3, 2, nQ)
+                        Q_arr = np.logspace(-5, 2, nQ)
                         tau_sol = np.zeros(nQ)
                         tau_guess = 0.5
                         for i in range(nQ):
@@ -710,6 +710,8 @@ class AMID():
                             func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + 10**popt[-1]/Q if 10**popt[-1]<Q else tau
 
                             tau_sol[i] = fsolve(func, tau_guess, factor=1.)
+                            if tau_sol[i] < 0:
+                                tau_sol[i] = 0
                         
                 if shape == 'plane':
                     popt, pcov = curve_fit(self._planes, (fcap, rates), z, p0=p0,
@@ -926,4 +928,15 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3600*n*D))*(1/3 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
+    def insert_rate_cap(self, rate_cap):
+
+        new_rate_cap = pd.read_csv(rate_cap, na_values = ['no info', '.'])
+        
+        self.nvolts = 1
+        self.fcaps = [np.array(new_rate_cap['Capacity'])]
+        self.eff_rates = [list(new_rate_cap['n in C/n'].values)]
+        self.ir = [list(new_rate_cap['Crate'].values)]
+        self.vlabels = ['inserted']
+        self.avg_volts = [0]
+        self.dqdv = [[0.0005]]
     
