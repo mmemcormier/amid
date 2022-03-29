@@ -435,6 +435,7 @@ class AMID():
                 if caps == []:
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
+                    Vstart = np.around(volts[0], decimals=3)
                     cutvolts.append([volts[cvoltind]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
