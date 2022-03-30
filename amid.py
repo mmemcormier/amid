@@ -580,8 +580,9 @@ class AMID():
         return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, ftol=5e-14, D_bounds=None, D_guess=None, shape='sphere', corr=False,
-                   nalpha=600, nQ=2000, export_data=True, export_fig=True, label=None):
+    def fit_atlung(self, r, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-13, 
+                   maxfcap_bounds=[1, 1.00001], maxfcap_guess=1.0, R_eff_bounds=[1e-4, 1e1], R_eff_guess=1.0e-2,
+                   shape='sphere', corr=False, nalpha=1000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
         self.corr = corr
@@ -648,38 +649,16 @@ class AMID():
             
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
-            def_D_bounds = [1e-16, 1e-8]
-            def_maxfcap_bounds = [1, 1.00001]
-            def_R_eff_bounds = [1e-4, 1e1]
-            def_D_guess = 0.5e-15
-            def_maxfcap_guess = 1.0
-            def_R_eff_guess = 0.2e-3
-            
             if corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
-                if D_bounds is None:
-                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0]],
-                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1]])
-                else:
-                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0]],
-                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1]])
-                if D_guess is None:   
-                    p0 = [np.log10(def_D_guess), def_maxfcap_guess]
-                else:
-                    p0 = [np.log10(D_guess), def_maxfcap_guess]    
+                bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0]],
+                              [np.log10(D_bounds[1]), maxfcap_bounds[1]])
+                p0 = [np.log10(D_guess), maxfcap_guess]    
             else:
-                #weights = np.ones(len(self.ir[j]))
-                if D_bounds is None:
-                    bounds = ([np.log10(def_D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
-                              [np.log10(def_D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
-                else:
-                    bounds = ([np.log10(D_bounds[0]), def_maxfcap_bounds[0], np.log10(def_R_eff_bounds[0])],
-                              [np.log10(D_bounds[1]), def_maxfcap_bounds[1], np.log10(def_R_eff_bounds[1])])
-                if D_guess is None:   
-                    p0 = [np.log10(def_D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
-                else:
-                    p0 = [np.log10(D_guess), def_maxfcap_guess, np.log10(def_R_eff_guess)]
+                bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0], np.log10(R_eff_bounds[0])],
+                          [np.log10(D_bounds[1]), maxfcap_bounds[1], np.log10(R_eff_bounds[1])])
+                p0 = [np.log10(D_guess), maxfcap_guess, np.log10(R_eff_guess)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -700,9 +679,9 @@ class AMID():
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                         popt = np.append(popt, popt[2] + popt[0])
-                        print("Opt params: {}".format(popt))
+                        print("{} Opt params: {}".format(self.vlabels[j], popt))
                         resist_eff[j] = 10**popt[-1]
-                        Q_arr = np.logspace(-5, 2, nQ)
+                        Q_arr = np.logspace(-6, 2, nQ)
                         tau_sol = np.zeros(nQ)
                         tau_guess = 0.5
                         for i in range(nQ):
@@ -752,7 +731,8 @@ class AMID():
                     plt.ylim(0, 0.1)
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
-                plt.legend(frameon=False, loc='lower right')
+                plt.legend(frameon=False, loc='upper left')
+                plt.xticks(10.**np.arange(-6, 3))
                 if export_fig is True:
                     if label is None:
                         figname = self.dst / '{0}_Atlung-{1}_{2:.3f}.jpg'.format(self.cell_label, shape, self.avg_volts[j])
@@ -962,15 +942,18 @@ class AMID():
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
-        #Calculates inacessible capacity as ~1 
+        #Calculates without points with fcap less than 0.001 if the largest fcap is less than 0.1
+        #This allows better fits by treating the resistance growth at low voltages as an instantaneous ohmic resistance
+        #when total fcap is small enough that this makes a difference in the fit.
+        #Calculates inacessible capacity as 1 + tau 
         #if R_eff/Q > 1 AND fcap is less than 0.05 of largest fcap 
         #by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
         #This avoids the divergent region where tau=0 but infinite summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/max(c) < 0.05:
-                nlim = R_eff/(3600*D)*self.r**2
-                nlimarr = nlim*np.ones(len(self.alphas))
+            if c[i] < 0.001 and max(c) < 0.1:
+                result.append(1)
+            elif R_eff>(3600*n[i]*D)/self.r**2 and c[i]/max(c) < 0.05:
                 result.append(c[i]/c_max + 1)
             else:
                 result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
