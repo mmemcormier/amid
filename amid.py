@@ -435,7 +435,7 @@ class AMID():
                 if caps == []:
                     caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
                     rates.append([RATES[minarg]])
-                    Vstart = np.around(volts[0], decimals=3)
+                    initcutvolt = np.around(volts[0], decimals=3)
                     cutvolts.append([volts[cvoltind]])
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
@@ -491,7 +491,7 @@ class AMID():
                 volts = step['Potential'].values
                 currents = np.absolute(step['Current'].values)
                 
-                #Collect preceding OCV steps (1 OCV or 2 OCV) to calculate dqdv
+                #Collect suceeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
                 if ocvstep['Step'].values[0] != 0:
                     ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
@@ -528,7 +528,11 @@ class AMID():
                         rates.append([RATES[minarg]])
                     else:
                         rates[-1].append(RATES[minarg])
-                        
+                
+                if cutvolts == []:
+                    prevstep = self.df.loc[self.df['Prot_step'] == sigsteps[i] - 1]
+                    prevvolts = prevstep['Potential'].values
+                    initcutvolt = np.around(prevvolts[-1], decimals=3)
                 cutvolts.append([ocvvolts[-1]]) 
                 
             nvolts = len(caps)
@@ -557,15 +561,15 @@ class AMID():
         print('Cutoff voltages: {}'.format(cvolts))
         avg_volt = np.zeros(nvolts)
         # Get midpoint voltage for each range.
-        avg_volt[0] = (Vstart + cvolts[0])/2
+        avg_volt[0] = (initcutvolt + cvolts[0])/2
         avg_volt[1:] = (cvolts[:-1] + cvolts[1:])/2
         print('Midpoint voltages: {}'.format(avg_volt))
         dvolts = np.zeros(nvolts)
-        dvolts[0] = np.absolute(Vstart - cvolts[0])
+        dvolts[0] = np.absolute(initcutvolt - cvolts[0])
         dvolts[1:] = np.absolute(cvolts[:-1] - cvolts[1:])
         print('Voltage intervals widths: {}'.format(dvolts))
         # Make voltage interval labels for legend.
-        vlabels = ['{0:.3f} V - {1:.3f} V'.format(Vstart, cvolts[0])]
+        vlabels = ['{0:.3f} V - {1:.3f} V'.format(initcutvolt, cvolts[0])]
         vlabels = vlabels + ['{0:.3f} V - {1:.3f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
         print('Voltage interval labels: {}'.format(vlabels))
         print('Found {} voltage intervals.'.format(nvolts))
@@ -616,7 +620,7 @@ class AMID():
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
         else:
-            print("Opt params: [LogD, fCapAdj, log(Reff-D), Log(Reff)]")
+            print("Opt params: [LogD, fCapAdj, log(Reff/D), Log(Reff)]")
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
@@ -727,12 +731,19 @@ class AMID():
                 plt.semilogx(Qfit, tau_fit, 'or', markersize=4, label='{0} - {1}'.format(self.cell_label, self.vlabels[j]))
                 if max(tau_fit) < 0.01:
                     plt.ylim(0, 0.01)
+                    plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
                 elif max(tau_fit) < 0.1:
                     plt.ylim(0, 0.1)
+                    plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
                 plt.legend(frameon=False, loc='upper left')
-                plt.xticks(10.**np.arange(-6, 3))
+                if Qfit[0] < 1.0e-4 or Qfit[1] < 1.0e-3:
+                    plt.xlim(1.0e-6, 1.0e0)
+                    plt.xticks(10.**np.arange(-6, 1))
+                else:
+                    plt.xlim(1.0e-4, 1.0e2)
+                    plt.xticks(10.**np.arange(-4, 3))
                 if export_fig is True:
                     if label is None:
                         figname = self.dst / '{0}_Atlung-{1}_{2:.3f}.jpg'.format(self.cell_label, shape, self.avg_volts[j])
