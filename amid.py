@@ -203,7 +203,7 @@ class AMID():
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
         self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, \
-        self.currs, self.ir, self.dqdv, self.cvolts, self.avg_volts, \
+        self.currs, self.ir, self.dqdv, self.resistdrop, self.cvolts, self.avg_volts, \
         self.dvolts, self.vlabels = self._parse_sigcurves()
         
         self.nvolts = len(self.caps)
@@ -234,7 +234,7 @@ class AMID():
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
         
-        if self.single_curr == False:
+        if self.single_curr is False:
             #print(ocv_inds)
             # Require a min of 3 OCV steps with the same step before and after
             # to qualify as a signature curve.
@@ -398,9 +398,10 @@ class AMID():
         currs = []
         ir = []
         dqdv = []
+        resistdrop = []
         eff_rates = []
         
-        if self.single_curr == False:
+        if self.single_curr is False:
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
                 stepcaps = step['Capacity'].values
@@ -440,9 +441,10 @@ class AMID():
                     currs.append([np.average(currents)])
                     ir.append([np.absolute(volts[0] - volts[1])])
                     dqdv.append([diffq])
+                    resistdrop.append([ir[-1][-1]/currs[-1][-1]])
                 else:
                     #if np.amax(currents) < currs[-1][-1]:
-                    if np.average(currents) < currs[-1][-1]:
+                    if volts[cvoltind] == cutvolts[-1][-1]:
                         caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
                         rates[-1].append(RATES[minarg])
                         cutvolts[-1].append(volts[cvoltind])
@@ -450,6 +452,7 @@ class AMID():
                         #currs[-1].append(np.amax(currents[1:]))
                         ir[-1].append(np.absolute(volts[0] - volts[1]))
                         dqdv[-1].append(diffq)
+                        resistdrop[-1].append(ir[-1][-1]/currs[-1][-1])
                     else:
                         if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
                             continue
@@ -460,8 +463,9 @@ class AMID():
                         currs.append([np.average(currents)])
                         ir.append([np.absolute(volts[0] - volts[1])])
                         dqdv.append([diffq])
+                        resistdrop.append([ir[-1][-1]/currs[-1][-1]])
             
-            nvolts = len(caps)  
+            nvolts = len(caps)
             for i in range(nvolts):
                 fcaps.append(np.cumsum(caps[i]) / np.sum(caps[i]))
                 scaps.append(np.cumsum(caps[i]))
@@ -476,11 +480,15 @@ class AMID():
                     caps[i] = np.delete(caps[i], inds)
                     scaps[i] = np.delete(scaps[i], inds)
                     fcaps[i] = np.delete(fcaps[i], inds)
+                    eff_rates[i] = np.delete(eff_rates[i], inds)
                     rates[i] = np.delete(rates[i], inds)
-                    ir[i] = np.delete(ir[i], inds)
+                    cutvolts[i] = np.delete(cutvolts[i], inds)
                     currs[i] = np.delete(currs[i], inds)
+                    ir[i] = np.delete(ir[i], inds)
                     dqdv[i] = np.delete(dqdv[i], inds)
-                    print("Signature curve removed due to being below fcap min")
+                    resistdrop[i] = np.delete(resistdrop[i], inds)
+                    print("Current removed due to being below fcap min")
+            
         else:
             #icaps is the idealized capacity for a given voltage based upon dqdv
             icaps = []
@@ -543,8 +551,6 @@ class AMID():
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
         for i in range(nvolts):
-            if len(set(cutvolts[i])) != 1:
-                print("Different cutoff voltages detected within same interval")
             cvolts[i] = np.average(cutvolts[i])
         
                 #v1 = np.around(cutvolts[-i-1][-1], decimals=2)
@@ -574,6 +580,27 @@ class AMID():
         print('Voltage interval labels: {}'.format(vlabels))
         print('Found {} voltage intervals.'.format(nvolts))
         
+        iadj = 0
+        for i in range(nvolts):    
+            if len(fcaps[i-iadj]) < 4:
+                print("{} removed due to not having 4 or more currents".format(vlabels[i-iadj]))
+                caps.pop(i-iadj)
+                scaps.pop(i-iadj)
+                fcaps.pop(i-iadj)
+                eff_rates.pop(i-iadj)
+                rates.pop(i-iadj)
+                initcutvolt = cutvolts[i-iadj][0]
+                cutvolts.pop(i-iadj)
+                currs.pop(i-iadj)
+                ir.pop(i-iadj)
+                dqdv.pop(i-iadj)
+                resistdrop.pop(i-iadj)
+                avg_volt = np.delete(avg_volt, i-iadj)
+                dvolts = np.delete(dvolts, i-iadj)
+                vlabels = np.delete(vlabels, i-iadj)
+                iadj = iadj + 1
+        nvolts = len(caps)
+        
         new_caps = []
         new_scaps = []
         for i in range(nvolts):
@@ -581,11 +608,11 @@ class AMID():
             new_scaps.append(1000*np.array(scaps[i])/self.mass)
         #print(new_caps)
 
-        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, cvolts, avg_volt, dvolts, vlabels 
        
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-13, 
-                   maxfcap_bounds=[1, 1.00001], maxfcap_guess=1.0, R_eff_bounds=[1e-4, 1e1], R_eff_guess=1.0e-2,
+                   maxfcap_bounds=[0.95, 1.5], maxfcap_guess=1.0, R_eff_bounds=[1e-4, 1e1], R_eff_guess=1.0e-2,
                    shape='sphere', corr=False, nalpha=1000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
@@ -611,7 +638,7 @@ class AMID():
                 
         # Solve for tau vs Q
         if corr is False:
-            print("Opt params: [LogD, fCapAdj]")
+            print("Opt params: [Log(D), fCapAdj]")
             Q_arr = np.logspace(-3, 2, nQ)
             tau_sol = np.zeros(nQ)
             tau_guess = 0.5
@@ -620,7 +647,7 @@ class AMID():
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
         else:
-            print("Opt params: [LogD, fCapAdj, log(Reff/D), Log(Reff)]")
+            print("Opt params: [Log(D), fCapAdj, log(Reff), Log(Reff/D)]")
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
@@ -643,14 +670,16 @@ class AMID():
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
             
-            if self.single_curr == False:
+            if self.single_curr is False:
                 # selects the dqdv of C/40 discharge/charge or nearest to C/40
                 act_rates = self.capacity / np.array(self.currs[j])
                 minarg = np.argmin(np.absolute(40 - act_rates))
                 dqdv[j] = self.dqdv[j][minarg]
             else:
                 dqdv[j] = self.dqdv[j][0]
-            
+                # constrains maxfcap to 1
+                maxfcap_bounds=[1.0, 1.0000001]
+
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
             if corr is False:
@@ -673,24 +702,25 @@ class AMID():
                                    bounds=bounds, sigma=weights,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
+                        print("{} Opt params: {}".format(self.vlabels[j], popt))
                     else:
-                        p0opt = [p0[0], p0[1], p0[2] - p0[0]]
-                        boundsopt = [[bounds[0][0], bounds[0][1], bounds[0][2] - bounds[1][0]], 
-                                      [bounds[1][0], bounds[1][1], bounds[1][2] - bounds[0][0]]]
+                        p0opt = [p0[2] - p0[0], p0[1], p0[2]]
+                        boundsopt = [[bounds[0][2] - bounds[1][0], bounds[0][1], bounds[0][2]], 
+                                      [bounds[1][2] - bounds[0][0], bounds[1][1], bounds[1][2]]]
                         
                         popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0opt,
                                    bounds=boundsopt,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
-                        popt = np.append(popt, popt[2] + popt[0])
+                        popt = np.array([popt[2] - popt[0], popt[1], popt[2], popt[0]])
                         print("{} Opt params: {}".format(self.vlabels[j], popt))
-                        resist_eff[j] = 10**popt[-1]
+                        resist_eff[j] = 10**popt[2]
                         Q_arr = np.logspace(-6, 2, nQ)
                         tau_sol = np.zeros(nQ)
                         tau_guess = 0.5
                         for i in range(nQ):
                             Q = Q_arr[i]
-                            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + 10**popt[-1]/Q if 10**popt[-1]<Q else tau
+                            func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas))) + 10**popt[2]/Q if 10**popt[2]<Q else tau
 
                             tau_sol[i] = fsolve(func, tau_guess, factor=1.)
                             if tau_sol[i] < 0:
@@ -709,9 +739,6 @@ class AMID():
                 Qfit = 3600*rates*dconst[j]/r**2
                 tau_fit = fcap/popt[1]
                 
-                #print(self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]))
-                #print(sum((self._spheres_corr((fcap, rates), popt[0], 1.01*popt[1], popt[2]) - z)**2))
-                
                 cap_max[j] = tau_fit[-1]
                 cap_min[j] = tau_fit[0]
                 cap_span[j] = tau_fit[-1] - tau_fit[0]
@@ -723,7 +750,7 @@ class AMID():
                     dQ = np.absolute(Q_arr - Qfit[k])
                     minarg = np.argmin(dQ)
                     error[k] = np.absolute(tau_fit[k] - tau_sol[minarg])
-                if corr == False:
+                if corr is False:
                     fit_err[j] = np.sum(weights*error)
                 else:
                     fit_err[j] = np.sqrt(np.average((error/cap_max[j])**2))
@@ -761,13 +788,20 @@ class AMID():
             # get resist from resist_eff
             resist = resist_eff*self.r**2/(3600*dconst*dqdv)
             #print("Resist: {} V/A".format(resist))
+            
             # get resist from ir drop
-            resistdrop = []
+            rdrop = []
             for i in range(len(resist)):
-                resistdrop.append(self.ir[i][0]/self.currs[i][0])
+                if self.single_curr is False:
+                    rdrop.append(np.average(self.resistdrop[i]))
+            #        resistdrop.append([])
+            #        for j in range(len(self.ir[i])):
+            #            resistdrop[i][j].append(self.ir[i][j]/self.currs[i][j])
+                else:
+                    rdrop[i].append(self.ir[i][0]/self.currs[i][0])
             
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst, 'R_eff' : resist_eff,
-                                       'dqdV': dqdv, 'R' : resist, 'Rdrop' : resistdrop})
+                                       'dqdV': dqdv, 'Rfit' : resist, 'Rdrop' : rdrop})
         
         if export_data is True:
             if label is None:
@@ -782,7 +816,7 @@ class AMID():
         print('Standard deviations from fit: {}'.format(sigma))
         print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, resistdrop
+        return self.avg_volts, dconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop
         
     def make_summary_graph(self, fit_data, export_fig=True, label=None):
         
@@ -802,83 +836,140 @@ class AMID():
         resistdrop = fit_data[12]
         
         with plt.style.context('grapher'):
-            if self.single_curr == False:
-                if self.corr == False:
-                    fig, axs = plt.subplots(ncols=1, nrows=7, figsize=(7, 15), sharex=True,
+            if self.single_curr is False:
+                if self.corr is False:
+                    fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 15), sharex=True,
                     gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
-                else:
-                    fig, axs = plt.subplots(ncols=1, nrows=7, figsize=(7, 15), sharex=True,
-                    gridspec_kw={'height_ratios': [2,1,1,1,1,1,1], 'hspace': 0.0})
                     
-                axs[0].semilogy(voltage, dconst, 'ko--', linewidth=0.75, label='{}'.format(self.cell_label))
-                #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[0].get_xaxis().set_ticks(voltage)
-                axs[0].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[0].set_xlabel('Voltage (V)', fontsize=12)
-                axs[0].set_ylabel('D (cm$^2$/s)', fontsize=12)
-                axs[0].legend(frameon=False, fontsize=12)
-                
-                axs[1].plot(voltage, fit_err, 'ks--', linewidth=0.75)
-                axs[1].set_ylim(0, np.amin([0.5, np.amax(fit_err)]))
-                #axs[1].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[1].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[1].get_xaxis().set_ticks(voltage)
-                axs[1].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[1].yaxis.set_minor_locator(MultipleLocator(0.05))
-                #axs[1].set_ylabel('Average \n fractional \n fit error', fontsize=12)
-                axs[1].set_ylabel('Weighted average \n absolute \n fit error', fontsize=12)
-                
-                axs[2].plot(voltage, cap_span, 'k^--', linewidth=0.75)
-                axs[2].set_ylim(0, 1.0)
-                #axs[2].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[2].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[2].get_xaxis().set_ticks(voltage)
-                axs[2].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[2].get_yaxis().set_ticks([0, 0.25, 0.5, 0.75])
-                axs[2].set_xlabel('Voltage (V)', fontsize=12)
-                axs[2].set_ylabel('Fitted fractional \n capacity span', fontsize=12)
-                for j in range(nvolts):
-                    axs[2].fill(np.array([voltage[j]-0.01, voltage[j]-0.01, voltage[j]+0.01, voltage[j]+0.01]),
-                                np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
-                                color='k', alpha=0.3, edgecolor='k', linestyle='-')
-                
-                for j in range(nvolts):
-                    cap_in_step = caps[j]
-                    ir = dV_ir[j]
-                    axs[3].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='k', alpha=0.15,
-                               edgecolor='k')
-                    for i in range(len(ir)):
-                        #width = 0.1/len(cap_in_step)
-                        #center = voltage[j] - 0.05 + (i+1/2)*width
-                        width = dvolts[j]/len(cap_in_step)
-                        center = voltage[j] - dvolts[j]/2 + (i+1/2)*width
-                        axs[3].bar(center, cap_in_step[i], width=width, color='k', alpha=0.3)
-                        axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3)
-                axs[3].set_ylabel('Specific Capacity \n in step (mAh/g)', fontsize=12)
-                axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
-                #axs[3].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[4].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                axs[4].get_xaxis().set_ticks(voltage)
-                axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[4].set_xlabel('Voltage (V)', fontsize=12)
-                axs[4].set_ylabel('Fractional \n IR drop', fontsize=12)
-                
-                if self.corr == True:
-                    axs[5].plot(voltage, resist_eff, 'k*--', linewidth=0.75)
-                    axs[5].plot(voltage, 1.0/15*np.ones(len(voltage)), 'k:', linewidth=1.5)
-                    axs[5].set_ylim(0, np.amin([2.0/15, np.amax(resist_eff)]))
+                    axs[0].semilogy(voltage, dconst, 'ko--', linewidth=0.75, label='{}'.format(self.cell_label))
+                    #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[0].get_xaxis().set_ticks(voltage)
+                    axs[0].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[0].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[0].set_ylabel('D (cm$^2$/s)', fontsize=12)
+                    axs[0].legend(frameon=False, fontsize=12)
+                    
+                    axs[1].plot(voltage, fit_err, 'ks--', linewidth=0.75)
+                    axs[1].set_ylim(0, np.amin([0.5, np.amax(fit_err)]))
+                    #axs[1].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[1].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[1].get_xaxis().set_ticks(voltage)
+                    axs[1].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[1].yaxis.set_minor_locator(MultipleLocator(0.05))
+                    #axs[1].set_ylabel('Average \n fractional \n fit error', fontsize=12)
+                    axs[1].set_ylabel('Weighted average \n absolute \n fit error', fontsize=12)
+                    
+                    axs[2].plot(voltage, cap_span, 'k^--', linewidth=0.75)
+                    axs[2].set_ylim(0, 1.0)
+                    #axs[2].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[2].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[2].get_xaxis().set_ticks(voltage)
+                    axs[2].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[2].get_yaxis().set_ticks([0, 0.25, 0.5, 0.75])
+                    axs[2].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[2].set_ylabel('Fitted fractional \n capacity span', fontsize=12)
+                    for j in range(nvolts):
+                        axs[2].fill(np.array([voltage[j]-0.01, voltage[j]-0.01, voltage[j]+0.01, voltage[j]+0.01]),
+                                    np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
+                                    color='k', alpha=0.3, edgecolor='k', linestyle='-')
+                    
+                    for j in range(nvolts):
+                        cap_in_step = caps[j]
+                        ir = dV_ir[j]
+                        axs[3].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='k', alpha=0.15,
+                                   edgecolor='k')
+                        for i in range(len(ir)):
+                            #width = 0.1/len(cap_in_step)
+                            #center = voltage[j] - 0.05 + (i+1/2)*width
+                            width = dvolts[j]/len(cap_in_step)
+                            center = voltage[j] - dvolts[j]/2 + (i+1/2)*width
+                            axs[3].bar(center, cap_in_step[i], width=width, color='k', alpha=0.3)
+                            axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3)
+                    axs[3].set_ylabel('Specific Capacity \n in step (mAh/g)', fontsize=12)
+                    axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    #axs[3].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[4].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    axs[4].get_xaxis().set_ticks(voltage)
+                    axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[4].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
+                    axs[4].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[4].set_ylabel('Fractional \n IR drop', fontsize=12)
+                    
+                else:
+                    fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(7, 15), sharex=True,
+                    gridspec_kw={'height_ratios': [2,1,1,1,1,1], 'hspace': 0.0})
+                    
+                    axs[0].semilogy(voltage, dconst, 'ko-', linewidth=0.75, label='{}'.format(self.cell_label))
+                    #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[0].get_xaxis().set_ticks(voltage)
+                    axs[0].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[0].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[0].set_ylabel('D (cm$^2$/s)', fontsize=12)
+                    axs[0].legend(frameon=False, fontsize=12)
+                    
+                    axs[1].semilogy(voltage, resist_eff, 'ko-', linewidth=0.75)
+                    axs[1].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k:', linewidth=1.5)
+                    axs[1].set_ylim(1.0e-5, 1.0)
+                    axs[1].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[1].set_ylabel('R$_{eff}$', fontsize=12)
+                    
+                    axs[2].semilogy(voltage, resist, 'ko-', linewidth=0.75, label='fit R')
+                    rdavg = []
+                    rddev = []
+                    for i in range(nvolts):
+                        rdavg.append(np.average(resistdrop[i]))
+                        rddev.append(np.std(resistdrop[i]))
+                    axs[2].errorbar(voltage, rdavg, rddev, fmt='k^-', capsize = 3.0, linewidth=0.75, label='Vdrop R')
+                    axs[2].xscale = 'log'
+                    axs[2].set_ylim(1.0e1, 0.99e5)
+                    axs[2].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[2].set_ylabel('R ($\Omega$)', fontsize=12)
+                    axs[2].legend(frameon=False, fontsize=12)
+                    
+                    axs[3].plot(voltage, fit_err, 'ko-', linewidth=0.75)
+                    axs[3].set_ylim(0, np.amin([0.5, np.amax(fit_err)]))
+                    #axs[1].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[1].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[3].get_xaxis().set_ticks(voltage)
+                    axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[3].yaxis.set_minor_locator(MultipleLocator(0.05))
+                    #axs[1].set_ylabel('Average \n fractional \n fit error', fontsize=12)
+                    axs[3].set_ylabel('Weighted average \n absolute \n fit error', fontsize=12)
+                    
+                    axs[4].plot(voltage, cap_span, 'ko-', linewidth=0.75)
+                    axs[4].set_ylim(0, 1.0)
+                    #axs[2].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                    #axs[2].xaxis.set_minor_locator(MultipleLocator(0.1))
+                    axs[4].get_xaxis().set_ticks(voltage)
+                    axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[4].get_yaxis().set_ticks([0, 0.25, 0.5, 0.75])
+                    axs[4].set_xlabel('Voltage (V)', fontsize=12)
+                    axs[4].set_ylabel('Fitted fractional \n capacity span', fontsize=12)
+                    for j in range(nvolts):
+                        axs[4].fill(np.array([voltage[j]-0.01, voltage[j]-0.01, voltage[j]+0.01, voltage[j]+0.01]),
+                                    np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
+                                    color='k', alpha=0.3, edgecolor='k', linestyle='-')
+                    
+                    for j in range(nvolts):
+                        cap_in_step = caps[j]
+                        ir = dV_ir[j]
+                        axs[5].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='k', alpha=0.15,
+                                   edgecolor='k')
+                        for i in range(len(ir)):
+                            #width = 0.1/len(cap_in_step)
+                            #center = voltage[j] - 0.05 + (i+1/2)*width
+                            width = dvolts[j]/len(cap_in_step)
+                            center = voltage[j] - dvolts[j]/2 + (i+1/2)*width
+                            axs[5].bar(center, cap_in_step[i], width=width, color='k', alpha=0.3)
+                            #axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3)
                     axs[5].get_xaxis().set_ticks(voltage)
                     axs[5].tick_params(axis='x', which='minor', top=False, bottom=False)
+                    axs[5].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                     axs[5].set_xlabel('Voltage (V)', fontsize=12)
-                    axs[5].set_ylabel('R_eff', fontsize=12)
+                    axs[5].set_ylabel('Specific Capacity \n in step (mAh/g)', fontsize=12)
                     
-                    axs[6].plot(voltage, resist, 'kd--', linewidth=0.75)
-                    axs[6].get_xaxis().set_ticks(voltage)
-                    axs[6].tick_params(axis='x', which='minor', top=False, bottom=False)
-                    axs[6].set_xlabel('Voltage (V)', fontsize=12)
-                    axs[6].set_ylabel('R ($\Omega$)', fontsize=12)
-                    axs[6].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
             else:
                 fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
                 gridspec_kw={'height_ratios': [1,1,1,1,1,1], 'hspace': 0.0})
@@ -943,10 +1034,10 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, logD, c_max, logR_effMinusD):
+    def _spheres_corr(self, X, logR_effDivD, c_max, logR_eff):
         
-        D = 10**logD
-        R_eff = 10**(logR_effMinusD + logD)
+        D = 10**(logR_eff - logR_effDivD)
+        R_eff = 10**logR_eff
         
         c, n = X
         carr = np.repeat(c.reshape(len(c), 1), len(self.alphas), axis=1)
