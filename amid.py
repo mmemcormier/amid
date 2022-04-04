@@ -537,6 +537,8 @@ class AMID():
                     else:
                         rates[-1].append(RATES[minarg])
                 
+                resistdrop.append([ir[-1][-1]/currs[-1][0]])
+                
                 if cutvolts == []:
                     prevstep = self.df.loc[self.df['Prot_step'] == sigsteps[i] - 1]
                     prevvolts = prevstep['Potential'].values
@@ -798,7 +800,7 @@ class AMID():
             #        for j in range(len(self.ir[i])):
             #            resistdrop[i][j].append(self.ir[i][j]/self.currs[i][j])
                 else:
-                    rdrop[i].append(self.ir[i][0]/self.currs[i][0])
+                    rdrop.append(self.resistdrop[i])
             
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst, 'R_eff' : resist_eff,
                                        'dqdV': dqdv, 'Rfit' : resist, 'Rdrop' : rdrop})
@@ -936,7 +938,7 @@ class AMID():
                     axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
                     axs[3].yaxis.set_minor_locator(MultipleLocator(0.05))
                     #axs[1].set_ylabel('Average \n fractional \n fit error', fontsize=12)
-                    axs[3].set_ylabel('Weighted average \n absolute \n fit error', fontsize=12)
+                    axs[3].set_ylabel('Fit error', fontsize=12)
                     
                     axs[4].plot(voltage, cap_span, 'ko-', linewidth=0.75)
                     axs[4].set_ylim(0, 1.0)
