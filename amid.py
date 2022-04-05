@@ -584,8 +584,8 @@ class AMID():
         
         iadj = 0
         for i in range(nvolts):    
-            if len(fcaps[i-iadj]) < 4:
-                print("{} removed due to not having 4 or more currents".format(vlabels[i-iadj]))
+            if len([j for j in fcaps[i-iadj] if j>0.001]) < 4:
+                print("{} removed due to not having 4 or more datapoints with fcap above 0.001".format(vlabels[i-iadj]))
                 caps.pop(i-iadj)
                 scaps.pop(i-iadj)
                 fcaps.pop(i-iadj)
@@ -800,7 +800,7 @@ class AMID():
             #        for j in range(len(self.ir[i])):
             #            resistdrop[i][j].append(self.ir[i][j]/self.currs[i][j])
                 else:
-                    rdrop.append(self.resistdrop[i])
+                    rdrop.append(self.resistdrop[i][0])
             
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst, 'R_eff' : resist_eff,
                                        'dqdV': dqdv, 'Rfit' : resist, 'Rdrop' : rdrop})
