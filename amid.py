@@ -614,8 +614,8 @@ class AMID():
        
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-13, 
-                   maxfcap_bounds=[0.95, 1.5], maxfcap_guess=1.0, R_eff_bounds=[1e-4, 1e1], R_eff_guess=1.0e-2,
-                   shape='sphere', corr=False, nalpha=1000, nQ=4000, export_data=True, export_fig=True, label=None):
+                   maxfcap_bounds=[0.95, 1.5], maxfcap_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2,
+                   shape='sphere', corr=False, nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
         self.corr = corr
@@ -734,7 +734,7 @@ class AMID():
                                method='trf', max_nfev=5000, x_scale=[1e-11, 1.0],
                                ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                 
-                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
+                #plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 
                 sigma[j] = np.sqrt(np.diag(pcov))[0]
                 dconst[j] = 10**popt[0]
@@ -764,6 +764,7 @@ class AMID():
                 elif max(tau_fit) < 0.1:
                     plt.ylim(0, 0.1)
                     plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
+                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
                 plt.legend(frameon=False, loc='upper left')
@@ -802,8 +803,8 @@ class AMID():
                 else:
                     rdrop.append(self.resistdrop[i][0])
             
-            DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst, 'R_eff' : resist_eff,
-                                       'dqdV': dqdv, 'Rfit' : resist, 'Rdrop' : rdrop})
+            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'D (cm^2/s)': dconst, 'R_eff' : resist_eff,
+                                       'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv], 'Rfit (Ohm)' : resist, 'Rdrop (Ohm)' : rdrop})
         
         if export_data is True:
             if label is None:
@@ -1009,9 +1010,9 @@ class AMID():
                                 np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
                                 color='k', alpha=0.3, edgecolor='k', linestyle='-')
                 
-                axs[5].plot(voltage, dqdv, 'k+-', linewidth=0.75)
+                axs[5].plot(voltage, [i*1000/self.mass for i in dqdv], 'k+-', linewidth=0.75)
                 axs[5].set_xlabel('Voltage (V)', fontsize=12)
-                axs[5].set_ylabel('dq/dV', fontsize=12)
+                axs[5].set_ylabel('dq/dV (mAh/gV)', fontsize=12)
         
             if export_fig is True:
                 if label is None:
@@ -1049,8 +1050,7 @@ class AMID():
         #Calculates without points with fcap less than 0.001 if the largest fcap is less than 0.1
         #This allows better fits by treating the resistance growth at low voltages as an instantaneous ohmic resistance
         #when total fcap is small enough that this makes a difference in the fit.
-        #Calculates inacessible capacity as 1 + tau 
-        #if R_eff/Q > 1 AND fcap is less than 0.05 of largest fcap 
+        #Calculates inacessible capacity as 1 + tau if R_eff/Q > 1 AND fcap is less than 0.05 of largest fcap 
         #by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
         #This avoids the divergent region where tau=0 but infinite summation error is amplified. 
         result = []
