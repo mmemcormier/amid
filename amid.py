@@ -494,7 +494,10 @@ class AMID():
                 print("Capacitance correction cannot be applied to multi-current AMID data. Data is being analyzed without capacitance correction")
         else:
             #icaps is the idealized capacity for a given voltage based upon dqdv
+            #currsForC is the instantaneous current for determining where C should be calculated
             icaps = []
+            currsForC = []
+            voltsForC = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
                 #step = step.loc[step['Potential'] > step['Potential'].values[-1] + 0.01]
@@ -529,7 +532,9 @@ class AMID():
                 
                 caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
-                icaps.append(dqdv[-1][0]*(volts[0] - volts[1:]))
+                icaps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
+                currsForC.append(currents[1:])
+                voltsForC.append(volts[1:])
                 
                 currs.append([])
                 for j in range(len(currents[1:])):
@@ -549,14 +554,34 @@ class AMID():
                 cutvolts.append([ocvvolts[-1]]) 
                 
             nvolts = len(caps)
-            if self.capacitance_corr == False:
-                for i in range(nvolts):              
-                    fcaps.append(caps[i]/icaps[i])        
-                    eff_rates.append(icaps[i]/currs[i])
-            else:
+            if self.capacitance_corr == True:
+                lowVind = cutvolts.index(min(cutvolts))
+                print(cutvolts[lowVind], lowVind)
+                A = np.ones((5, 2))
+                y = np.zeros(5)
+                n = 0
+                for i in range(len(currsForC[lowVind])):
+                    if n == 5:
+                        break
+                    if abs(currsForC[lowVind][i]/currsForC[lowVind][i+1] - 1) < 0.01:
+                        print(currsForC[lowVind][i])
+                        A[n][0] = voltsForC[lowVind][i]
+                        y[n] = caps[lowVind][i]
+                        n = n + 1
+                    else:
+                        A = np.ones((5, 2))
+                        y = np.zeros(5)
+                        n = 0
+                
+                capacitance = abs(np.linalg.lstsq(A, y)[0][0])
+                print('Double layer capacitance found at lowest V pulse: {}'.format(capacitance))
+                
                 for i in range(nvolts):
-                    fcaps.append(caps[i]/icaps[i])        
-                    eff_rates.append(icaps[i]/currs[i])
+                    pass
+            
+            for i in range(nvolts):
+                fcaps.append(caps[i]/icaps[i])        
+                eff_rates.append(icaps[i]/currs[i])
         
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
