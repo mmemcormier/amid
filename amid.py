@@ -27,10 +27,11 @@ SHAPES = ['sphere', 'plane']
 
 class AMID():
     
-    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None,
-                 export_data=True, use_input_cap=False, fcap_min=0.0, single_current=False, spliced=False):
+    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None, export_data=True, 
+                 use_input_cap=False, fcap_min=0.0, single_current=False, capacitance_corr=False, spliced=False):
         
         self.single_curr = single_current
+        self.capacitance_corr = capacitance_corr
         self.fcap_min = fcap_min
         self.cell_label = cell_label
         self.dst = Path(dstpath) / self.cell_label
@@ -488,7 +489,9 @@ class AMID():
                     dqdv[i] = np.delete(dqdv[i], inds)
                     resistdrop[i] = np.delete(resistdrop[i], inds)
                     print("Current removed due to being below fcap min")
-            
+        
+            if self.capacitance_corr == True:
+                print("Capacitance correction cannot be applied to multi-current AMID data. Data is being analyzed without capacitance correction")
         else:
             #icaps is the idealized capacity for a given voltage based upon dqdv
             icaps = []
@@ -546,10 +549,15 @@ class AMID():
                 cutvolts.append([ocvvolts[-1]]) 
                 
             nvolts = len(caps)
-            for i in range(nvolts):              
-                fcaps.append(caps[i]/icaps[i])        
-                eff_rates.append(icaps[i]/currs[i])
-
+            if self.capacitance_corr == False:
+                for i in range(nvolts):              
+                    fcaps.append(caps[i]/icaps[i])        
+                    eff_rates.append(icaps[i]/currs[i])
+            else:
+                for i in range(nvolts):
+                    fcaps.append(caps[i]/icaps[i])        
+                    eff_rates.append(icaps[i]/currs[i])
+        
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
         for i in range(nvolts):
@@ -984,7 +992,7 @@ class AMID():
                 
                 axs[1].semilogy(voltage, resist_eff, 'k+-', linewidth=0.75)
                 axs[1].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k:', linewidth=1.5)
-                axs[1].set_ylim(1.0e-5, 1.0)
+                axs[1].set_ylim(1.0e-6, 1.0)
                 axs[1].set_xlabel('Voltage (V)', fontsize=12)
                 axs[1].set_ylabel('R$_{eff}$', fontsize=12)
                 
@@ -1086,4 +1094,4 @@ class AMID():
         self.ir = [list(new_rate_cap['Crate'].values)]
         self.vlabels = ['inserted']
         self.avg_volts = [0]
-        self.dqdv = [[0.0005]] 
+        self.dqdv = [list(new_rate_cap['dqdv'].values)] 
