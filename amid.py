@@ -494,10 +494,10 @@ class AMID():
                 print("Capacitance correction cannot be applied to multi-current AMID data. Data is being analyzed without capacitance correction")
         else:
             #icaps is the idealized capacity for a given voltage based upon dqdv
-            #currsForC is the instantaneous current for determining where C should be calculated
+            #currsCum is the cumulative averge current for determining where C should be calculated
             icaps = []
-            currsForC = []
-            voltsForC = []
+            currsCum = []
+            voltsAct = []
             time = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
@@ -536,19 +536,19 @@ class AMID():
                 caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 icaps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
-                currsForC.append(currents[1:])
-                voltsForC.append(volts[1:])
+                currs.append(currents[1:])
+                voltsAct.append(volts[1:])
                 
-                currs.append([])
+                currsCum.append([])
                 for j in range(len(currents[1:])):
-                    currs[-1].append(np.average(currents[1:j+2]))
-                    minarg = np.argmin(np.absolute(RATES - self.capacity / currs[-1][j]))
+                    currsCum[-1].append(np.average(currents[1:j+2]))
+                    minarg = np.argmin(np.absolute(RATES - self.capacity / currsCum[-1][j]))
                     if j == 0:
                         rates.append([RATES[minarg]])
                     else:
                         rates[-1].append(RATES[minarg])
                 
-                resistdrop.append([ir[-1][-1]/currs[-1][0]])
+                resistdrop.append([ir[-1][-1]/currsCum[-1][0]])
                 
                 if cutvolts == []:
                     prevstep = self.df.loc[self.df['Prot_step'] == sigsteps[i] - 1]
@@ -559,16 +559,17 @@ class AMID():
             nvolts = len(caps)
             
             if self.capacitance_corr == True:
+                #DL capacitance is calculated from the first 5 consistent current datapoints in the lowest V pulse.
                 lowVind = cutvolts.index(min(cutvolts))
 
                 A = np.ones((5, 2))
                 y = np.zeros(5)
                 n = 0
-                for i in range(len(currsForC[lowVind])):
+                for i in range(len(currs[lowVind])):
                     if n == 5:
                         break
-                    if abs(currsForC[lowVind][i]/currsForC[lowVind][i+1] - 1) < 0.01:
-                        A[n][0] = voltsForC[lowVind][i]
+                    if abs(currs[lowVind][i]/currs[lowVind][i+1] - 1) < 0.01:
+                        A[n][0] = voltsAct[lowVind][i]
                         y[n] = caps[lowVind][i]
                         n = n + 1
                     else:
@@ -581,36 +582,49 @@ class AMID():
                 
                 for i in range(nvolts):
                     dlcaps = []
-                    for j in range(len(voltsForC[i])):
-                        if voltsForC[i][0] > voltsForC[i][-1]:
-                            if voltsForC[i][0] + ir[i][0] - currsForC[i][j]*resistdrop[i][0] > voltsForC[i][j]:
-                                dlcaps.append(capacitance*((voltsForC[i][0] + ir[i][0] - currsForC[i][j]*resistdrop[i][0]) - voltsForC[i][j]))
+                    for j in range(len(voltsAct[i])):
+                        if voltsAct[i][0] > voltsAct[i][-1]:
+                            if voltsAct[i][0] + ir[i][0] - currs[i][j]*resistdrop[i][0] > voltsAct[i][j]:
+                                dlcaps.append(capacitance*((voltsAct[i][0] + ir[i][0] - currs[i][j]*resistdrop[i][0]) - voltsAct[i][j]))
                             else:
                                 dlcaps.append(0)
                         else:
-                            if voltsForC[i][0] - ir[i][0] + currsForC[i][j]*resistdrop[i][0] < voltsForC[i][j]:
-                                dlcaps.append(capacitance*(voltsForC[i][j] - (voltsForC[i][0] - ir[i][0] + currsForC[i][j]*resistdrop[i][0])))
+                            if voltsAct[i][0] - ir[i][0] + currs[i][j]*resistdrop[i][0] < voltsAct[i][j]:
+                                dlcaps.append(capacitance*(voltsAct[i][j] - (voltsAct[i][0] - ir[i][0] + currs[i][j]*resistdrop[i][0])))
                             else:
                                 dlcaps.append(0)
 
                     caps[i] = caps[i] - dlcaps
+                    #if caps is calculated as negative, this datapoint is effectively thrown out (caps set to 0)
                     for j in range(len(caps[i])):
                         if caps[i][j] < 0:
                             caps[i][j] = 0
+                    
                     icaps[i] = icaps[i] - dlcaps
-                    currs[i] = currs[i] - dlcaps/time[i]
+                    #if icaps is calculated as negative, this datapoint is effectively thrown out (adjustment removed, caps set to 0)
                     for j in range(len(caps[i])):
-                        if currs[i][j] < 0:
+                        if icaps[i][j] <= 0:
                             caps[i][j] = 0
-                            currs[i][j] = currs[i][j] + dlcaps[j]/time[i][j]
+                            icaps[i][j] = icaps[i][j] + dlcaps[j]
+                    
+                    currsCum[i] = currsCum[i] - dlcaps/time[i]
+                    #if cumulative current is calculated as negative, this datapoint is effectively thrown out (adjustment removed, caps set to 0)
+                    for j in range(len(caps[i])):
+                        if currsCum[i][j] <= 0:
+                            caps[i][j] = 0
+                            currsCum[i][j] = currsCum[i][j] + dlcaps[j]/time[i][j]
             
             for i in range(nvolts):
                 fcaps.append(caps[i]/icaps[i])
+                eff_rates.append(icaps[i]/currsCum[i])
+                #outlier repair: if fcap/eff_rates is greater than succeeding points, reduce it to be equal to lowest of succeeding points.
                 for j in range(len(caps[i]) - 1):
                     for k in range(len(caps[i]) - j - 1):
                         if fcaps[i][j] > fcaps[i][j + k + 1]:
                             fcaps[i][j] = fcaps[i][j + k + 1]
-                eff_rates.append(icaps[i]/currs[i])
+                        if eff_rates[i][j] > eff_rates[i][j + k + 1]:
+                            eff_rates[i][j] = eff_rates[i][j + k + 1]
+
         
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
@@ -677,10 +691,10 @@ class AMID():
 
     def fit_atlung(self, r, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-13, 
                    maxfcap_bounds=[0.95, 1.5], maxfcap_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2,
-                   shape='sphere', corr=False, nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
+                   shape='sphere', r_corr=False, nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
-        self.corr = corr
+        self.r_corr = r_corr
         
         if shape not in SHAPES:
             print('The specified shape {0} is not supported.'.format(shape))
@@ -701,7 +715,7 @@ class AMID():
             A, B = 1, 3
                 
         # Solve for tau vs Q
-        if corr is False:
+        if r_corr is False:
             print("Opt params: [Log(D), fCapAdj]")
             Q_arr = np.logspace(-3, 2, nQ)
             tau_sol = np.zeros(nQ)
@@ -746,7 +760,7 @@ class AMID():
 
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
-            if corr is False:
+            if r_corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0]],
@@ -761,7 +775,7 @@ class AMID():
                 fig = plt.figure()
                 
                 if shape == 'sphere':
-                    if corr is False:
+                    if r_corr is False:
                         popt, pcov = curve_fit(self._spheres, (fcap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
@@ -772,7 +786,7 @@ class AMID():
                         boundsopt = [[bounds[0][2] - bounds[1][0], bounds[0][1], bounds[0][2]], 
                                       [bounds[1][2] - bounds[0][0], bounds[1][1], bounds[1][2]]]
                         
-                        popt, pcov = curve_fit(self._spheres_corr, (fcap, rates), z, p0=p0opt,
+                        popt, pcov = curve_fit(self._spheres_r_corr, (fcap, rates), z, p0=p0opt,
                                    bounds=boundsopt,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
@@ -814,7 +828,7 @@ class AMID():
                     dQ = np.absolute(Q_arr - Qfit[k])
                     minarg = np.argmin(dQ)
                     error[k] = np.absolute(tau_fit[k] - tau_sol[minarg])
-                if corr is False:
+                if r_corr is False:
                     fit_err[j] = np.sum(weights*error)
                 else:
                     fit_err[j] = np.sqrt(np.average((error/cap_max[j])**2))
@@ -846,7 +860,7 @@ class AMID():
                     plt.show()
                 plt.close()
         
-        if corr is False:
+        if r_corr is False:
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
             #cols = ['Voltage', 'D']
         else:
@@ -902,7 +916,7 @@ class AMID():
         
         with plt.style.context('grapher'):
             if self.single_curr is False:
-                if self.corr is False:
+                if self.r_corr is False:
                     fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 15), sharex=True,
                     gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
                     
@@ -1099,7 +1113,7 @@ class AMID():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_corr(self, X, logR_effDivD, c_max, logR_eff):
+    def _spheres_r_corr(self, X, logR_effDivD, c_max, logR_eff):
         
         D = 10**(logR_eff - logR_effDivD)
         R_eff = 10**logR_eff
