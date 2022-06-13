@@ -498,12 +498,14 @@ class AMID():
             icaps = []
             currsForC = []
             voltsForC = []
+            time = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
                 #step = step.loc[step['Potential'] > step['Potential'].values[-1] + 0.01]
                 stepcaps = step['Capacity'].values
                 volts = step['Potential'].values
                 currents = np.absolute(step['Current'].values)
+                runtime = step['Time'].values
                 
                 #Collect suceeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
@@ -530,6 +532,7 @@ class AMID():
                 
                 dqdv.append([(stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1])])
                 
+                time.append(np.absolute(runtime[1:] - runtime[0]))
                 caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 icaps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
@@ -554,9 +557,10 @@ class AMID():
                 cutvolts.append([ocvvolts[-1]]) 
                 
             nvolts = len(caps)
+            
             if self.capacitance_corr == True:
                 lowVind = cutvolts.index(min(cutvolts))
-                print(cutvolts[lowVind], lowVind)
+
                 A = np.ones((5, 2))
                 y = np.zeros(5)
                 n = 0
@@ -564,7 +568,6 @@ class AMID():
                     if n == 5:
                         break
                     if abs(currsForC[lowVind][i]/currsForC[lowVind][i+1] - 1) < 0.01:
-                        print(currsForC[lowVind][i])
                         A[n][0] = voltsForC[lowVind][i]
                         y[n] = caps[lowVind][i]
                         n = n + 1
@@ -574,13 +577,39 @@ class AMID():
                         n = 0
                 
                 capacitance = abs(np.linalg.lstsq(A, y)[0][0])
-                print('Double layer capacitance found at lowest V pulse: {}'.format(capacitance))
+                print('Double layer capacitance found at lowest V pulse: {:.2f} nF'.format(1.0e9*capacitance))
                 
                 for i in range(nvolts):
-                    pass
+                    dlcaps = []
+                    for j in range(len(voltsForC[i])):
+                        if voltsForC[i][0] > voltsForC[i][-1]:
+                            if voltsForC[i][0] + ir[i][0] - currsForC[i][j]*resistdrop[i][0] > voltsForC[i][j]:
+                                dlcaps.append(capacitance*((voltsForC[i][0] + ir[i][0] - currsForC[i][j]*resistdrop[i][0]) - voltsForC[i][j]))
+                            else:
+                                dlcaps.append(0)
+                        else:
+                            if voltsForC[i][0] - ir[i][0] + currsForC[i][j]*resistdrop[i][0] < voltsForC[i][j]:
+                                dlcaps.append(capacitance*(voltsForC[i][j] - (voltsForC[i][0] - ir[i][0] + currsForC[i][j]*resistdrop[i][0])))
+                            else:
+                                dlcaps.append(0)
+
+                    caps[i] = caps[i] - dlcaps
+                    for j in range(len(caps[i])):
+                        if caps[i][j] < 0:
+                            caps[i][j] = 0
+                    icaps[i] = icaps[i] - dlcaps
+                    currs[i] = currs[i] - dlcaps/time[i]
+                    for j in range(len(caps[i])):
+                        if currs[i][j] < 0:
+                            caps[i][j] = 0
+                            currs[i][j] = currs[i][j] + dlcaps[j]/time[i][j]
             
             for i in range(nvolts):
-                fcaps.append(caps[i]/icaps[i])        
+                fcaps.append(caps[i]/icaps[i])
+                for j in range(len(caps[i]) - 1):
+                    for k in range(len(caps[i]) - j - 1):
+                        if fcaps[i][j] > fcaps[i][j + k + 1]:
+                            fcaps[i][j] = fcaps[i][j + k + 1]
                 eff_rates.append(icaps[i]/currs[i])
         
         print('Found {} signature curves.'.format(nvolts))
