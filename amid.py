@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 import sys
 from scipy.optimize import curve_fit, fsolve
+from scipy import stats
 from pathlib import Path
 import re
 import matplotlib.pyplot as plt
@@ -548,7 +549,7 @@ class AMID():
                     else:
                         rates[-1].append(RATES[minarg])
                 
-                resistdrop.append([ir[-1][-1]/currsCum[-1][0]])
+                resistdrop.append([ir[-1][-1]/currs[-1][0]])
                 
                 if cutvolts == []:
                     prevstep = self.df.loc[self.df['Prot_step'] == sigsteps[i] - 1]
@@ -580,49 +581,49 @@ class AMID():
                 capacitance = abs(np.linalg.lstsq(A, y)[0][0])
                 print('Double layer capacitance found at lowest V pulse: {:.2f} nF'.format(1.0e9*capacitance))
                 
+                rohm = np.exp(stats.mode(np.round(np.log(resistdrop), 2))[0])[0][0]
+                print('Logarithmic mode of ohmic resistance over all pulses: {:.2f} Ω'.format(rohm))
                 for i in range(nvolts):
                     dlcaps = []
                     for j in range(len(voltsAct[i])):
                         if voltsAct[i][0] > voltsAct[i][-1]:
-                            if voltsAct[i][0] + ir[i][0] - currs[i][j]*resistdrop[i][0] > voltsAct[i][j]:
-                                dlcaps.append(capacitance*((voltsAct[i][0] + ir[i][0] - currs[i][j]*resistdrop[i][0]) - voltsAct[i][j]))
+                            if voltsAct[i][0] + ir[i][0] - currs[i][j]*rohm > voltsAct[i][j]:
+                                dlcaps.append(capacitance*((voltsAct[i][0] + ir[i][0] - currs[i][j]*rohm) - voltsAct[i][j]))
                             else:
                                 dlcaps.append(0)
                         else:
-                            if voltsAct[i][0] - ir[i][0] + currs[i][j]*resistdrop[i][0] < voltsAct[i][j]:
-                                dlcaps.append(capacitance*(voltsAct[i][j] - (voltsAct[i][0] - ir[i][0] + currs[i][j]*resistdrop[i][0])))
+                            if voltsAct[i][0] - ir[i][0] + currs[i][j]*rohm < voltsAct[i][j]:
+                                dlcaps.append(capacitance*(voltsAct[i][j] - (voltsAct[i][0] - ir[i][0] + currs[i][j]*rohm)))
                             else:
                                 dlcaps.append(0)
 
                     caps[i] = caps[i] - dlcaps
-                    #if caps is calculated as negative, this datapoint is effectively thrown out (caps set to 0)
+                    #if caps is calculated as negative or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if caps[i][j] < 0:
-                            caps[i][j] = 0
+                        if caps[i][j] < 0 or j == 0:
+                            caps[i][j] = float('NaN')
                     
-                    icaps[i] = icaps[i] - dlcaps
-                    #if icaps is calculated as negative, this datapoint is effectively thrown out (adjustment removed, caps set to 0)
+                    icaps[i] = icaps[i] - dlcaps - dqdv[i][0]*currs[i]*rohm 
+                    #if icaps is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if icaps[i][j] <= 0:
-                            caps[i][j] = 0
-                            icaps[i][j] = icaps[i][j] + dlcaps[j]
+                        if icaps[i][j] <= 0 or j == 0:
+                            icaps[i][j] = float('NaN')
                     
                     currsCum[i] = currsCum[i] - dlcaps/time[i]
-                    #if cumulative current is calculated as negative, this datapoint is effectively thrown out (adjustment removed, caps set to 0)
+                    #if cumulative current is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if currsCum[i][j] <= 0:
-                            caps[i][j] = 0
-                            currsCum[i][j] = currsCum[i][j] + dlcaps[j]/time[i][j]
+                        if currsCum[i][j] <= 0 or j == 0:
+                            currsCum[i][j] = float('NaN')
             
             for i in range(nvolts):
                 fcaps.append(caps[i]/icaps[i])
                 eff_rates.append(icaps[i]/currsCum[i])
-                #outlier repair: if fcap/eff_rates is greater than succeeding points, reduce it to be equal to lowest of succeeding points.
+                #outlier repair: if fcap or eff_rates is greater than succeeding points or NaN, reduce it to be equal to lowest of succeeding points.
                 for j in range(len(caps[i]) - 1):
                     for k in range(len(caps[i]) - j - 1):
-                        if fcaps[i][j] > fcaps[i][j + k + 1]:
+                        if not(fcaps[i][j] <= fcaps[i][j + k + 1]):
                             fcaps[i][j] = fcaps[i][j + k + 1]
-                        if eff_rates[i][j] > eff_rates[i][j + k + 1]:
+                        if not(eff_rates[i][j] <= eff_rates[i][j + k + 1]):
                             eff_rates[i][j] = eff_rates[i][j + k + 1]
 
         
@@ -760,7 +761,7 @@ class AMID():
 
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
-            if r_corr is False:
+            if self.r_corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0]],
@@ -775,7 +776,7 @@ class AMID():
                 fig = plt.figure()
                 
                 if shape == 'sphere':
-                    if r_corr is False:
+                    if self.r_corr is False:
                         popt, pcov = curve_fit(self._spheres, (fcap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
@@ -843,7 +844,7 @@ class AMID():
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
-                plt.legend(frameon=False, loc='upper left')
+                plt.legend(frameon=False, loc='upper left', fontsize=10)
                 if Qfit[0] < 1.0e-4 or Qfit[1] < 1.0e-3:
                     plt.xlim(1.0e-6, 1.0e0)
                     plt.xticks(10.**np.arange(-6, 1))
