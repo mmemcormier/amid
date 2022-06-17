@@ -563,19 +563,19 @@ class AMID():
                 #DL capacitance is calculated from the first 5 consistent current datapoints in the lowest V pulse.
                 lowVind = cutvolts.index(min(cutvolts))
 
-                A = np.ones((5, 2))
-                y = np.zeros(5)
+                A = np.ones((8, 2))
+                y = np.zeros(8)
                 n = 0
                 for i in range(len(currs[lowVind])):
-                    if n == 5:
+                    if n == 8:
                         break
                     if abs(currs[lowVind][i]/currs[lowVind][i+1] - 1) < 0.01:
-                        A[n][0] = voltsAct[lowVind][i]
-                        y[n] = caps[lowVind][i]
+                        A[n][0] = voltsAct[lowVind][i+1]
+                        y[n] = caps[lowVind][i+1]
                         n = n + 1
                     else:
-                        A = np.ones((5, 2))
-                        y = np.zeros(5)
+                        A = np.ones((8, 2))
+                        y = np.zeros(8)
                         n = 0
                 
                 capacitance = abs(np.linalg.lstsq(A, y)[0][0])
