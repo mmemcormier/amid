@@ -598,10 +598,10 @@ class AMID():
                                 dlcaps.append(0)
 
                     caps[i] = caps[i] - dlcaps
-                    #if caps is calculated as negative or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
+                    #if caps is calculated as negative or is first datapoint, this datapoint is effectively thrown out (caps set to 0)
                     for j in range(len(caps[i])):
                         if caps[i][j] < 0 or j == 0:
-                            caps[i][j] = float('NaN')
+                            caps[i][j] = 0
                     
                     icaps[i] = icaps[i] - dlcaps - dqdv[i][0]*currs[i]*rohm 
                     #if icaps is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
