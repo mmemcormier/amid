@@ -581,7 +581,7 @@ class AMID():
                 capacitance = abs(np.linalg.lstsq(A, y)[0][0])
                 print('Double layer capacitance found at lowest V pulse: {:.2f} nF'.format(1.0e9*capacitance))
                 
-                rohm = np.exp(stats.mode(np.round(np.log(resistdrop), 2))[0])[0][0]
+                rohm = np.power(10, stats.mode(np.round(np.log10(resistdrop), 2))[0])[0][0]
                 print('Logarithmic mode of ohmic resistance over all pulses: {:.2f} Ω'.format(rohm))
                 for i in range(nvolts):
                     dlcaps = []
