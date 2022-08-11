@@ -12,7 +12,7 @@ repository can be used instead.
 Press shift+enter to run each block of code
 
 ### Specifying source and destination file paths
-
+The file paths for folder structures will be different on various operating systems (Windows, Mac, Linux). If the file path is not reading your data correctly, check if the slashes representing folders should be forward (/) or back (\) slashes. 
 
 ### Input parameters for fitting
 Particle radius: this should be the primary particle radius for polycrystalline active materials, in units of cm. This can be measured from SEM images with ImageJ, see publications below for detailed examples. For single crystal materials, the particle radius can be measured by PSA or SEM.
@@ -44,7 +44,7 @@ Charge directon AMID: After formation, discharge cells to 3.0V at C/40, then cha
 
 ## Sample data
 
-Example protocol voltage vs time and voltage vs capacity plots:
+Example protocol voltage vs time and voltage vs capacity plots for an NMC622/Li, low-IR designed diffusion cell at 30oC:
 ![protocol_vis_EZ_C-263_01V_30C_220705](https://user-images.githubusercontent.com/95938840/184234331-6ab90da3-53b9-40f4-9957-2a71876fb896.jpg)
 Example capacity vs rate plot:
 ![cap-rate_EZ_C-263_01V_30C_220705](https://user-images.githubusercontent.com/95938840/184234346-fae86e91-b525-428d-9fe0-58e7edd3056d.jpg)
