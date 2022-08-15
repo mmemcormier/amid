@@ -1,0 +1,12 @@
+name: AMID-std
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - matplotlib
+  - scipy
+  - pathlib
+  - pandas
+  - jupyter
+  - openpyxl
