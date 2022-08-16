@@ -58,7 +58,18 @@ Example Atlung sphere fittings for various voltage intervals:
 ![EZ_C-263_01V_30C_220705_Atlung-sphere_3 650](https://user-images.githubusercontent.com/95938840/184234707-63517af1-dea5-411a-9ee4-51b29f1f1725.jpg)
 ![EZ_C-263_01V_30C_220705_Atlung-sphere_3 300](https://user-images.githubusercontent.com/95938840/184234712-24a5f28f-d4e2-4948-b266-cad154df5ea3.jpg)
 
-Example figures of merit Diffusivity vs Voltage output plots. For a good quality of fit the following metrics are desirable: low fit error, high capacity span, low IR drop.
+### Example figures of merit in a Diffusivity vs Voltage plots
+
+For a good quality of fit the following metrics are desirable: low weighted average absolute fit error, high fitted fractional capacity span, low fractional IR drop.
+
+The weighted average absolute fit error is the error between the data and the theoretical Atlung curve, weighted such that the slower rate (C/160) points have the highest weighting factor. This is because these values will be the least impacted by errors from IR drops since the currents are the lowest. In this example, the weighted error is highest for the 3.0-3.6 V and the 3.6-3.7 V intervals, making them less reliable.
+
+The span of the fitted Atlung curves on the fractional capacity axis ranges from 0 to 1. Datasets that have a high span are desirable because the fastest C-rate achieves little capacity, while the slowest C-rate achieves the full capacity. If all the datapoints are spanning only the top or the bottom of the fractional capacity axis, then the chosen C-rates are likely unsuitable to measure the diffusivity of the test material and should be revised.
+
+In the Specific Capacity in Step (mAh/g) panel, within each big bar representing one voltage interval, the smaller bars show the capacity achieved at each C-rate step from fastest to slowest C-rates from left to right. For this example NMC622 cell, the fastest discharge rates (2C) have the most capacity from 4.3 V to 3.7 V, indicating relatively fast diffusion.  However, below 3.7V, the capacity is more evenly distributed across all rates. This means that some capacity will only be accessible when this cell is discharged at the slowest rate of C/160, indicating slow diffusion below 3.7 V.
+
+The fractional IR drop in each voltage interval, is the IR drop divided by the voltage interval size (100mV). The tallest and lightest coloured bars show the first fastest rate step (2C in this case), and the shorter bars show the subsequent slower current steps, which have smaller IR drops because the current is smaller. It is desirable for the tallest IR drop bar to be as small as possible (under 0.5 fractional IR drop) to ensure that the cell has minimal resistance and is operating in a diffusion-limited regime.
+
 ![D-V_EZ_C-263_01V_30C_220705_](https://user-images.githubusercontent.com/95938840/184234373-9b55173c-d49a-4c2a-8be4-a066d32d5050.jpg)
 
 
