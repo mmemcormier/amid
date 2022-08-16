@@ -58,7 +58,7 @@ Example Atlung sphere fittings for various voltage intervals:
 ![EZ_C-263_01V_30C_220705_Atlung-sphere_3 650](https://user-images.githubusercontent.com/95938840/184234707-63517af1-dea5-411a-9ee4-51b29f1f1725.jpg)
 ![EZ_C-263_01V_30C_220705_Atlung-sphere_3 300](https://user-images.githubusercontent.com/95938840/184234712-24a5f28f-d4e2-4948-b266-cad154df5ea3.jpg)
 
-Example figures of merit D vs V output:
+Example figures of merit Diffusivity vs Voltage output plots. For a good quality of fit the following metrics are desirable: low fit error, high capacity span, low IR drop.
 ![D-V_EZ_C-263_01V_30C_220705_](https://user-images.githubusercontent.com/95938840/184234373-9b55173c-d49a-4c2a-8be4-a066d32d5050.jpg)
 
 
