@@ -26,6 +26,504 @@ UNITS = ['(h)', None, None, '(mA)', '(V)', '(mAh)', None]
 
 SHAPES = ['sphere', 'plane']
 
+class BIOCONVERT():
+    
+    def __init__(self, path, form_files, d_files, c_files, name, export_fig=True):
+        
+        # Acquire header info from first file
+        all_files = []
+        all_files.extend(form_files)
+        all_files.extend(d_files)
+        all_files.extend(c_files)
+        firstFileLoc = Path(path) / all_files[0]
+        with open(firstFileLoc, 'r') as f:
+            
+            # Read beginning of first file to discover lines in header
+            f.readline()
+            hlinenum = int(f.readline().strip().split()[-1])
+            header = f.readlines()[:hlinenum-3]
+            
+            # Acquire protocol name, capacity, active mass, and time started
+            protText = re.search('Loaded Setting File : (.+)', ''.join(header))
+            protName = protText.group(1).strip()
+            
+            massText = re.search('Mass of active material : (\d+.?\d+) (.+)', ''.join(header))
+            massVal = float(massText.group(1))
+            massUnit = massText.group(2).strip()
+            if massUnit != 'mg':
+                print('Mass Unit: ' + massUnit)
+                print('Please edit first file to express mass in mg so that specific capacity is accurately calculated')
+            
+            capacityText = re.search('Battery capacity : (\d+.?\d+) (.+)', ''.join(header))
+            capacityVal = float(capacityText.group(1))
+            capacityUnit = capacityText.group(2).strip()
+            if capacityUnit != 'mA.h':
+                print('Capacity Unit: ' + capacityUnit + '100')
+                print('Please edit first file to express capacity in mA.h so that specific capacity and rates are accurately calculated')
+            capacityUnit = capacityUnit.replace('.h', 'Hr')
+            
+            startText = re.search('Technique started on : (.+)', ''.join(header))
+            startTime = startText.group(1).strip()
+            
+            # Write header text
+            csvHeader = '[Summary]\nCell: ' + name + '\nFirst Protocol: ' + protName \
+            + '\nMass (' + massUnit + '): ' + str(massVal) + '\nCapacity (' + capacityUnit + '): ' + str(capacityVal) \
+            + '\nStarted: ' + startTime + '\n[End Summary]\n[Data]\n'
+        
+        # Generate complete csv
+        df = pd.DataFrame({})
+        
+        # Generate form dataframe if data available
+        if form_files:
+            dfForm = pd.DataFrame({})
+            
+            # Read and combine form file data
+            for f in form_files:
+                formFileLoc = Path(path) / f
+                with open(formFileLoc, 'r') as f:
+            
+                    # Read beginning of form file to discover lines in header
+                    f.readline()
+                    hlinenum = int(f.readline().strip().split()[-1]) - 1
+                    
+                # Read file into dataframe and convert to UHPC format
+                dfTempForm = pd.read_csv(formFileLoc, skiprows=hlinenum, sep = '\t', encoding_errors='replace')
+                dfTempForm = dfTempForm[['mode', 'time/s', 'I/mA', 'Ewe-Ece/V', 'Ewe/V', '(Q-Qo)/mA.h', 'Ns']]
+                
+                # Convert to NVX initial step convention
+                dfTempForm['Ns'] = dfTempForm['Ns'] + 1
+                
+                # Add last previous capacity, time, and step number to current data
+                if not(dfForm.empty):
+                    dfTempForm['time/s'] = dfTempForm['time/s'] + dfForm['time/s'].iat[-1]
+                    dfTempForm['(Q-Qo)/mA.h'] = dfTempForm['(Q-Qo)/mA.h'] + dfForm['(Q-Qo)/mA.h'].iat[-1]
+                    dfTempForm['Ns'] = dfTempForm['Ns'] + dfForm['Ns'].iat[-1]
+                
+                # Concatenate
+                dfForm = pd.concat([dfForm, dfTempForm])
+            
+            # Convert to hours, base units, NVX labels, and NVX rest step convention while retaining order
+            dfForm['time/s'] = dfForm['time/s'] / 3600
+            dfForm['I/mA'] = dfForm['I/mA'] / 1000
+            dfForm['(Q-Qo)/mA.h'] = dfForm['(Q-Qo)/mA.h'] / 1000
+            dfForm['mode'] = dfForm['mode'].replace(3, 0)
+            
+            dfForm.rename(columns={'mode':'Step Type', 
+                                   'time/s':'Run Time (h)', 
+                                   'I/mA':'Current (A)', 
+                                   'Ewe-Ece/V':'Potential vs. Counter (V)', 
+                                   'Ewe/V':'Potential (V)', 
+                                   '(Q-Qo)/mA.h':'Capacity (Ah)', 
+                                   'Ns':'Step Number'}, 
+                          inplace=True)
+            
+            # Add header info into form file
+            pathFileForm = Path(path) / (name + ' Form.csv')
+            with open(pathFileForm, 'w') as f:
+                f.write(csvHeader)
+            
+            # Add data into form file
+            dfForm.to_csv(pathFileForm, mode='a', index=False)
+        
+        # Generate D dataframe if data available
+        if d_files:
+            dfD = pd.DataFrame({})
+            
+            # Read, V average, and combine d file data
+            for f in d_files:
+                dFileLoc = Path(path) / f
+                with open(dFileLoc, 'r') as f:
+            
+                    # Read beginning of d file to discover lines in header
+                    f.readline()
+                    hlinenum = int(f.readline().strip().split()[-1]) - 1
+                    
+                # Read file into dataframe and convert to UHPC format
+                dfTempD = pd.read_csv(dFileLoc, skiprows=hlinenum, sep = '\t', encoding_errors='replace')
+                dfTempD = dfTempD[['mode', 'time/s', 'I/mA', 'Ewe-Ece/V', 'Ewe/V', '(Q-Qo)/mA.h', 'Ns', 'control/mA']]
+    
+                # Convert 0A CC to NVX rest steps and trim off control I column
+                dfTempD['mode'].mask(dfTempD['control/mA'] == 0, 0, inplace=True)
+                dfTempD.drop(columns=['control/mA'], inplace=True)
+                
+                # Iterate over each pulse starting with their preceeding OCV V rest step 
+                dfTempDSteps = dfTempD.drop_duplicates(subset=['mode', 'Ns'], ignore_index=True)
+                for i in dfTempDSteps.index:
+                    if i != dfTempDSteps.index[-1]:
+                        if dfTempDSteps['mode'][i] == 0 and dfTempDSteps['mode'][i+1] != 0:
+                            
+                            # Average together all points of the rest step before a pulse into 1 point (OCV V)
+                            ocvFinSel = dfTempD['Ns'] == dfTempDSteps['Ns'][i]
+                            ocvFinVals = dfTempD[ocvFinSel].mean(axis=0)
+                            dfTempD[ocvFinSel] = ocvFinVals
+                
+                            # Determine nAvg, the number of datapoints to average together so that there are 10 points in the first step
+                            nAvg = int(sum(dfTempD['Ns'] == dfTempDSteps['Ns'][i+1])/10)
+                            
+                            # Iterate over each CC step in pulse
+                            j = 1
+                            while dfTempDSteps['mode'][i+j] != 0:
+                                pulseInd = dfTempD[dfTempD['Ns'] == dfTempDSteps['Ns'][i+j]].index[0]
+                                
+                                # Give OCV V to first point in pulse else remove first point in CC step
+                                if j == 1:
+                                    dfTempD['Ewe-Ece/V'][pulseInd] = ocvFinVals['Ewe-Ece/V']
+                                    dfTempD['Ewe/V'][pulseInd] = ocvFinVals['Ewe/V']
+                                else:
+                                    dfTempD.drop([pulseInd], inplace = True)
+                                    
+                                    # Prints step and indice of datapoint removed [Default Commented Out]
+                                    #print(dfTempDSteps['Ns'][i+j], pulseInd)
+                                
+                                # Iterate over sets of nAvg datapoints within a CC step skipping the first and remainder datapoints
+                                while dfTempD['Ns'][pulseInd + nAvg] == dfTempDSteps['Ns'][i+j]:
+                                    
+                                    # Average together nAvg points into 1 point
+                                    CCPointVals = dfTempD.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
+                                    dfTempD.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
+                                    pulseInd = pulseInd + nAvg 
+                                    
+                                # Drop all remainder datapoints
+                                nextStepInd = dfTempD[dfTempD['Ns'] == dfTempDSteps['Ns'][i+j+1]].index[0]
+                                dfTempD.drop(dfTempD.loc[pulseInd + 1:nextStepInd - 1].index, inplace = True)
+                                
+                                # Prints step and range of indices of datapoints removed [Default Commented Out]
+                                #if pulseInd + 1 != nextStepInd:
+                                    #print(dfTempDSteps['Ns'][i+j], pulseInd + 1, '-', nextStepInd - 1)
+                                
+                                j = j + 1
+                    else:
+                        
+                        # Calculate OCV V for end of final pulse
+                        if dfTempDSteps['mode'][i] == 0 and dfTempDSteps['mode'][i-1] == 0 and dfTempDSteps['mode'][i-2] == 0 and dfTempDSteps['mode'][i-3] == 1:
+                            
+                            # Average together all points of the rest step before a pulse into 1 point (OCV V)
+                            ocvFinSel = dfTempD['Ns'] == dfTempDSteps['Ns'][i]
+                            ocvFinVals = dfTempD[ocvFinSel].mean(axis=0)
+                            dfTempD[ocvFinSel] = ocvFinVals
+                        
+                        # Label steps after last OCV V as CC to prevent analysis (Cell stopped prematurely or lost voltage stability)
+                        else:
+                            for i in range(len(dfTempDSteps.index)):
+                                if dfTempDSteps['mode'].iat[-i-1] == 0:
+                                    dfTempDSteps['mode'].iat[-i-1] = 1
+                                    dfTempD['mode'][dfTempD['Ns'] == dfTempDSteps['Ns'].iat[-i-1]] = 1
+                                else:
+                                    break
+                        
+                # Remove initial rest step series 
+                for i in range(len(dfTempDSteps.index)):
+                    if dfTempDSteps['mode'][i] == 0:
+                        dfTempD.drop(dfTempD.loc[dfTempD['Ns'] == dfTempDSteps['Ns'][i]].index, inplace = True)
+                        dfTempDSteps.drop(i, inplace = True)
+                    else:
+                        dfTempDSteps.reset_index(drop = True, inplace = True)
+                        break
+                
+                # Remove duplicates to simplify to one datapoint per averaging
+                dfTempD.drop_duplicates(inplace = True)
+                
+                # Combine all rest steps in a series except for the last step into 1 step
+                for i in range(len(dfTempDSteps.index)):
+                    if i != 0 and i != dfTempDSteps.index[-1]:
+                        if dfTempDSteps['mode'][i] == 0 and dfTempDSteps['mode'][i-1] == 0 and dfTempDSteps['mode'][i+1] == 0:
+                            dfTempD['Ns'][dfTempD['Ns'] == dfTempDSteps['Ns'][i]] = dfTempDSteps['Ns'][i-1]
+                            dfTempDSteps['Ns'][i] = dfTempDSteps['Ns'][i-1]
+                
+                # Combine all CC steps in a series
+                for i in range(len(dfTempDSteps.index)):
+                    if i != 0:
+                        if dfTempDSteps['mode'][i] != 0 and dfTempDSteps['mode'][i-1] != 0:
+                            dfTempD['Ns'][dfTempD['Ns'] == dfTempDSteps['Ns'][i]] = dfTempDSteps['Ns'][i-1]
+                            dfTempDSteps['Ns'][i] = dfTempDSteps['Ns'][i-1]
+                
+                # Relabel steps with continuous integers starting from 1
+                newDSteps = dfTempD.drop_duplicates(subset=['Ns'], ignore_index=True)
+                dfTempD['Ns'].replace(newDSteps['Ns'].values, newDSteps.index+1, inplace = True)
+                dfTempDSteps['Ns'].replace(newDSteps['Ns'].values, newDSteps.index+1, inplace = True)
+                
+                # Prints dataset after all transformations [Default Commented Out]
+                #print(dfTempD)
+                #print(dfTempD.loc[9500:13570])
+                #print(dfTempDSteps[0:50], dfTempDSteps[50:100], dfTempDSteps[100:150])
+                
+                # Add last previous capacity, time, and step number to current data
+                if not(dfD.empty):
+                    dfTempD['time/s'] = dfTempD['time/s'] + dfD['time/s'].iat[-1]
+                    dfTempD['(Q-Qo)/mA.h'] = dfTempD['(Q-Qo)/mA.h'] + dfD['(Q-Qo)/mA.h'].iat[-1]
+                    dfTempD['Ns'] = dfTempD['Ns'] + dfD['Ns'].iat[-1]
+                
+                # Concatenate 
+                dfD = pd.concat([dfD, dfTempD])
+                
+            # Convert to hours, base units, and NVX labels while retaining order
+            dfD['time/s'] = dfD['time/s'] / 3600
+            dfD['I/mA'] = dfD['I/mA'] / 1000
+            dfD['(Q-Qo)/mA.h'] = dfD['(Q-Qo)/mA.h'] / 1000
+            
+            dfD.rename(columns={'mode':'Step Type', 
+                                'time/s':'Run Time (h)', 
+                                'I/mA':'Current (A)', 
+                                'Ewe-Ece/V':'Potential vs. Counter (V)', 
+                                'Ewe/V':'Potential (V)', 
+                                '(Q-Qo)/mA.h':'Capacity (Ah)', 
+                                'Ns':'Step Number'}, 
+                       inplace=True)
+                
+            # Add header info into d file
+            pathFileD = Path(path) / (name + ' Discharge.csv')
+            with open(pathFileD, 'w') as f:
+                f.write(csvHeader)
+            
+            # Add data into d file
+            dfD.to_csv(pathFileD, mode='a', index=False)
+            
+        # Generate C dataframe if data available
+        if c_files:
+            dfC = pd.DataFrame({})
+            
+            # Read, V average, and combine c file data
+            for f in c_files:
+                cFileLoc = Path(path) / f
+                with open(cFileLoc, 'r') as f:
+            
+                    # Read beginning of c file to discover lines in header
+                    f.readline()
+                    hlinenum = int(f.readline().strip().split()[-1]) - 1
+                    
+                # Read file into dataframe and convert to UHPC format
+                dfTempC = pd.read_csv(cFileLoc, skiprows=hlinenum, sep = '\t', encoding_errors='replace')
+                dfTempC = dfTempC[['mode', 'time/s', 'I/mA', 'Ewe-Ece/V', 'Ewe/V', '(Q-Qo)/mA.h', 'Ns', 'control/mA']]
+    
+                # Convert 0A CC to NVX rest steps and trim off control I column
+                dfTempC['mode'].mask(dfTempC['control/mA'] == 0, 0, inplace=True)
+                dfTempC.drop(columns=['control/mA'], inplace=True)
+                
+                # Iterate over each pulse starting with their preceeding OCV V rest step 
+                dfTempCSteps = dfTempC.drop_duplicates(subset=['mode', 'Ns'], ignore_index=True)
+                for i in dfTempCSteps.index:
+                    if i != dfTempCSteps.index[-1]:
+                        if dfTempCSteps['mode'][i] == 0 and dfTempCSteps['mode'][i+1] != 0:
+                            
+                            # Average together all points of the rest step before a pulse into 1 point (OCV V)
+                            ocvFinSel = dfTempC['Ns'] == dfTempCSteps['Ns'][i]
+                            ocvFinVals = dfTempC[ocvFinSel].mean(axis=0)
+                            dfTempC[ocvFinSel] = ocvFinVals
+                
+                            # Determine nAvg, the number of datapoints to average together so that there are 10 points in the first step
+                            nAvg = int(sum(dfTempC['Ns'] == dfTempCSteps['Ns'][i+1])/10)
+                            
+                            # Iterate over each CC step in pulse
+                            j = 1
+                            while dfTempCSteps['mode'][i+j] != 0:
+                                pulseInd = dfTempC[dfTempC['Ns'] == dfTempCSteps['Ns'][i+j]].index[0]
+                                
+                                # Give OCV V to first point in pulse else remove first point in CC step
+                                if j == 1:
+                                    dfTempC['Ewe-Ece/V'][pulseInd] = ocvFinVals['Ewe-Ece/V']
+                                    dfTempC['Ewe/V'][pulseInd] = ocvFinVals['Ewe/V']
+                                else:
+                                    dfTempC.drop([pulseInd], inplace = True)
+                                    
+                                    # Prints step and indice of datapoint removed [Default Commented Out]
+                                    #print(dfTempCSteps['Ns'][i+j], pulseInd)
+                                
+                                # Iterate over sets of nAvg datapoints within a CC step skipping the first and remainder datapoints
+                                while dfTempC['Ns'][pulseInd + nAvg] == dfTempCSteps['Ns'][i+j]:
+                                    
+                                    # Average together nAvg points into 1 point
+                                    CCPointVals = dfTempC.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
+                                    dfTempC.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
+                                    pulseInd = pulseInd + nAvg 
+                                    
+                                # Drop all remainder datapoints
+                                nextStepInd = dfTempC[dfTempC['Ns'] == dfTempCSteps['Ns'][i+j+1]].index[0]
+                                dfTempC.drop(dfTempC.loc[pulseInd + 1:nextStepInd - 1].index, inplace = True)
+                                
+                                # Prints step and range of indices of datapoints removed [Default Commented Out]
+                                #if pulseInd + 1 != nextStepInd:
+                                    #print(dfTempCSteps['Ns'][i+j], pulseInd + 1, '-', nextStepInd - 1)
+                                
+                                j = j + 1
+                    else:
+                        
+                        # Calculate OCV V for end of final pulse
+                        if dfTempCSteps['mode'][i] == 0 and dfTempCSteps['mode'][i-1] == 0 and dfTempCSteps['mode'][i-2] == 0 and dfTempCSteps['mode'][i-3] == 1:
+                            
+                            # Average together all points of the rest step before a pulse into 1 point (OCV V)
+                            ocvFinSel = dfTempC['Ns'] == dfTempCSteps['Ns'][i]
+                            ocvFinVals = dfTempC[ocvFinSel].mean(axis=0)
+                            dfTempC[ocvFinSel] = ocvFinVals
+                        
+                        # Label steps after last OCV V as CC to prevent analysis (Cell stopped prematurely or lost voltage stability)
+                        else:
+                            for i in range(len(dfTempCSteps.index)):
+                                if dfTempCSteps['mode'].iat[-i-1] == 0:
+                                    dfTempCSteps['mode'].iat[-i-1] = 1
+                                    dfTempC['mode'][dfTempC['Ns'] == dfTempCSteps['Ns'].iat[-i-1]] = 1
+                                else:
+                                    break
+                        
+                # Remove initial rest step series 
+                for i in range(len(dfTempCSteps.index)):
+                    if dfTempCSteps['mode'][i] == 0:
+                        dfTempC.drop(dfTempC.loc[dfTempC['Ns'] == dfTempCSteps['Ns'][i]].index, inplace = True)
+                        dfTempCSteps.drop(i, inplace = True)
+                    else:
+                        dfTempCSteps.reset_index(drop = True, inplace = True)
+                        break
+                
+                # Remove duplicates to simplify to one datapoint per averaging
+                dfTempC.drop_duplicates(inplace = True)
+                
+                # Combine all rest steps in a series except for the last step into 1 step
+                for i in range(len(dfTempCSteps.index)):
+                    if i != 0 and i != dfTempCSteps.index[-1]:
+                        if dfTempCSteps['mode'][i] == 0 and dfTempCSteps['mode'][i-1] == 0 and dfTempCSteps['mode'][i+1] == 0:
+                            dfTempC['Ns'][dfTempC['Ns'] == dfTempCSteps['Ns'][i]] = dfTempCSteps['Ns'][i-1]
+                            dfTempCSteps['Ns'][i] = dfTempCSteps['Ns'][i-1]
+                
+                # Combine all CC steps in a series
+                for i in range(len(dfTempCSteps.index)):
+                    if i != 0:
+                        if dfTempCSteps['mode'][i] != 0 and dfTempCSteps['mode'][i-1] != 0:
+                            dfTempC['Ns'][dfTempC['Ns'] == dfTempCSteps['Ns'][i]] = dfTempCSteps['Ns'][i-1]
+                            dfTempCSteps['Ns'][i] = dfTempCSteps['Ns'][i-1]
+                
+                # Relabel steps with continuous integers starting from 1
+                newCSteps = dfTempC.drop_duplicates(subset=['Ns'], ignore_index=True)
+                dfTempC['Ns'].replace(newCSteps['Ns'].values, newCSteps.index+1, inplace = True)
+                dfTempCSteps['Ns'].replace(newCSteps['Ns'].values, newCSteps.index+1, inplace = True)
+                
+                # Prints dataset after all transformations [Default Commented Out]
+                #print(dfTempC)
+                #print(dfTempC.loc[9500:13570])
+                #print(dfTempCSteps[0:50], dfTempCSteps[50:100], dfTempCSteps[100:150])
+                
+                # Add last previous capacity, time, and step number to current data
+                if not(dfC.empty):
+                    dfTempC['time/s'] = dfTempC['time/s'] + dfC['time/s'].iat[-1]
+                    dfTempC['(Q-Qo)/mA.h'] = dfTempC['(Q-Qo)/mA.h'] + dfC['(Q-Qo)/mA.h'].iat[-1]
+                    dfTempC['Ns'] = dfTempC['Ns'] + dfC['Ns'].iat[-1]
+                
+                # Concatenate 
+                dfC = pd.concat([dfC, dfTempC])
+                
+            # Convert to hours, base units, and NVX labels while retaining order
+            dfC['time/s'] = dfC['time/s'] / 3600
+            dfC['I/mA'] = dfC['I/mA'] / 1000
+            dfC['(Q-Qo)/mA.h'] = dfC['(Q-Qo)/mA.h'] / 1000
+            
+            dfC.rename(columns={'mode':'Step Type', 
+                                'time/s':'Run Time (h)', 
+                                'I/mA':'Current (A)', 
+                                'Ewe-Ece/V':'Potential vs. Counter (V)', 
+                                'Ewe/V':'Potential (V)', 
+                                '(Q-Qo)/mA.h':'Capacity (Ah)', 
+                                'Ns':'Step Number'}, 
+                       inplace=True)
+                
+            # Add header info into c file
+            pathFileC = Path(path) / (name + ' Charge.csv')
+            with open(pathFileC, 'w') as f:
+                f.write(csvHeader)
+            
+            # Add data into c file
+            dfC.to_csv(pathFileC, mode='a', index=False)
+        
+        # Combine file data
+        if form_files:
+            
+            # Concatenate
+            df = pd.concat([df, dfForm])
+            
+        if d_files:
+            
+            # Add last capacity, time, and step number to suceeding file
+            if not(df.empty):
+                dfD['Run Time (h)'] = dfD['Run Time (h)'] + df['Run Time (h)'].iat[-1]
+                dfD['Capacity (Ah)'] = dfD['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
+                dfD['Step Number'] = dfD['Step Number'] + df['Step Number'].iat[-1]
+                    
+            # Concatenate
+            df = pd.concat([df, dfD])
+            
+        if c_files:
+            
+            # Add last capacity, time, and step number to suceeding file
+            if not(df.empty):
+                dfC['Run Time (h)'] = dfC['Run Time (h)'] + df['Run Time (h)'].iat[-1]
+                dfC['Capacity (Ah)'] = dfC['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
+                dfC['Step Number'] = dfC['Step Number'] + df['Step Number'].iat[-1]
+                    
+            # Concatenate
+            df = pd.concat([df, dfC])
+        
+        # Add Header info into complete file
+        pathFile = Path(path) / (name + '.csv')
+        with open(pathFile, 'w') as f:
+            f.write(csvHeader)
+            
+        # Add data into complete file
+        df.to_csv(pathFile, mode='a', index=False)
+        
+        # Generate complete graph
+        with plt.style.context('grapher'):
+        
+            fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(10, 4), gridspec_kw={'wspace':0.0})
+            
+            if form_files:
+                axs[0].plot(dfForm['Run Time (h)'], dfForm['Potential vs. Counter (V)'], 'k--', label = 'Formation vs. Counter')
+                axs[0].plot(dfForm['Run Time (h)'], dfForm['Potential (V)'], 'k-', label = 'Formation vs. Ref')
+            
+            if d_files:
+                axs[0].plot(dfD['Run Time (h)'], dfD['Potential vs. Counter (V)'], 'r--', label = 'Discharge vs. Counter')
+                axs[0].plot(dfD['Run Time (h)'], dfD['Potential (V)'], 'r-', label = 'Discharge vs. Ref')
+            
+            if c_files:
+                axs[0].plot(dfC['Run Time (h)'], dfC['Potential vs. Counter (V)'], 'b--', label = 'Charge vs. Counter')
+                axs[0].plot(dfC['Run Time (h)'], dfC['Potential (V)'], 'b-', label = 'Charge vs. Ref')
+
+            axs[0].set_xlabel('Time (h)')
+            axs[0].set_ylabel('Voltage (V)')
+            
+            if form_files:
+                axs[1].plot(dfForm['Capacity (Ah)']*1000000/massVal, dfForm['Potential vs. Counter (V)'], 'k--', label = 'Formation vs. Counter')
+                axs[1].plot(dfForm['Capacity (Ah)']*1000000/massVal, dfForm['Potential (V)'], 'k-', label = 'Formation vs. Ref')
+            
+            if d_files:
+                axs[1].plot(dfD['Capacity (Ah)']*1000000/massVal, dfD['Potential vs. Counter (V)'], 'r--', label = 'Discharge vs. Counter')
+                axs[1].plot(dfD['Capacity (Ah)']*1000000/massVal, dfD['Potential (V)'], 'r-', label = 'Discharge vs. Ref')
+            
+            if c_files:
+                axs[1].plot(dfC['Capacity (Ah)']*1000000/massVal, dfC['Potential vs. Counter (V)'], 'b--', label = 'Charge vs. Counter')
+                axs[1].plot(dfC['Capacity (Ah)']*1000000/massVal, dfC['Potential (V)'], 'b-', label = 'Charge vs. Ref')
+            
+            axs[1].set_xlabel('Capacity (mAh/g)')
+            
+            plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
+            
+            if export_fig is True:
+                plt.savefig(Path(path) / 'complete_protocol_{}.jpg'.format(name))
+            
+            plt.show()
+            
+            if d_files and c_files:
+                dfDOCV = dfD[dfD['Step Type'] != 0].drop_duplicates(['Step Number'])
+                dfCOCV = dfC[dfC['Step Type'] != 0].drop_duplicates(['Step Number'])
+                
+                fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10, 4), gridspec_kw={'wspace':0.0})
+                axs.plot(dfDOCV['Capacity (Ah)']*1000000/massVal, dfDOCV['Potential (V)'], 'r.-', label = 'Discharge OCV vs. Ref')
+                axs.plot(dfCOCV['Capacity (Ah)']*1000000/massVal, dfCOCV['Potential (V)'], 'b.-', label = 'Charge OCV vs. Ref')
+                axs.set_xlabel('Capacity (mAh/g)')
+                axs.set_ylabel('Voltage (V)')
+                plt.legend(loc='lower right')
+                
+                if export_fig is True:
+                    plt.savefig(Path(path) / 'OCV_match_{}.jpg'.format(name))
+                
+                plt.show()
+        
 class AMID():
     
     def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None, export_data=True, 
