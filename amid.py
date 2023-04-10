@@ -130,8 +130,8 @@ class BIOCONVERT():
             dfD = pd.DataFrame({})
             
             # Read, V average, and combine d file data
-            for f in d_files:
-                dFileLoc = Path(path) / f
+            for file in d_files:
+                dFileLoc = Path(path) / file
                 with open(dFileLoc, 'r') as f:
             
                     # Read beginning of d file to discover lines in header
@@ -145,9 +145,21 @@ class BIOCONVERT():
                 # Convert 0A CC to NVX rest steps and trim off control I column
                 dfTempD['mode'].mask(dfTempD['control/mA'] == 0, 0, inplace=True)
                 dfTempD.drop(columns=['control/mA'], inplace=True)
+ 
+                dfTempDSteps = dfTempD.drop_duplicates(subset=['Ns'], ignore_index=True)
                 
-                # Iterate over each pulse starting with their preceeding OCV V rest step 
-                dfTempDSteps = dfTempD.drop_duplicates(subset=['mode', 'Ns'], ignore_index=True)
+                # Detect if test ended prematurely
+                if dfTempDSteps['mode'].iloc[-1] != 0:
+                    print(file, 'ended prematurely. Adding dummy step to prevent overindexing.')
+                    
+                    # Add dummy step at end to prevent overindexing
+                    dummyD = dfTempD.loc[dfTempD.index[-1]:dfTempD.index[-1]].copy()
+                    dummyD['Ns'] = dummyD['Ns'] + 1
+                    dummyD['mode'] = 0
+                    dfTempD = pd.concat([dfTempD, dummyD], ignore_index=True)
+                    dfTempDSteps = pd.concat([dfTempDSteps, dummyD], ignore_index=True)
+                    
+                # Iterate over each pulse starting with their preceeding OCV V rest step    
                 for i in dfTempDSteps.index:
                     if i != dfTempDSteps.index[-1]:
                         if dfTempDSteps['mode'][i] == 0 and dfTempDSteps['mode'][i+1] != 0:
@@ -176,12 +188,16 @@ class BIOCONVERT():
                                     #print(dfTempDSteps['Ns'][i+j], pulseInd)
                                 
                                 # Iterate over sets of nAvg datapoints within a CC step skipping the first and remainder datapoints
-                                while dfTempD['Ns'][pulseInd + nAvg] == dfTempDSteps['Ns'][i+j]:
-                                    
-                                    # Average together nAvg points into 1 point
-                                    CCPointVals = dfTempD.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
-                                    dfTempD.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
-                                    pulseInd = pulseInd + nAvg 
+                                if pulseInd + nAvg <= dfTempD.index[-1]:
+                                    while dfTempD['Ns'][pulseInd + nAvg] == dfTempDSteps['Ns'][i+j]:
+                                        
+                                        # Average together nAvg points into 1 point
+                                        CCPointVals = dfTempD.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
+                                        dfTempD.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
+                                        pulseInd = pulseInd + nAvg 
+                                        
+                                        if pulseInd + nAvg > dfTempD.index[-1]:
+                                            break
                                     
                                 # Drop all remainder datapoints
                                 nextStepInd = dfTempD[dfTempD['Ns'] == dfTempDSteps['Ns'][i+j+1]].index[0]
@@ -202,8 +218,9 @@ class BIOCONVERT():
                             ocvFinVals = dfTempD[ocvFinSel].mean(axis=0)
                             dfTempD[ocvFinSel] = ocvFinVals
                         
-                        # Label steps after last OCV V as CC to prevent analysis (Cell stopped prematurely or lost voltage stability)
+                        # Label steps after last OCV V as CC to prevent analysis (Test stopped prematurely)
                         else:
+                            print(file, 'ended prematurely. Labeling last pulse as unfinished to prevent analysis.')
                             for i in range(len(dfTempDSteps.index)):
                                 if dfTempDSteps['mode'].iat[-i-1] == 0:
                                     dfTempDSteps['mode'].iat[-i-1] = 1
@@ -223,7 +240,7 @@ class BIOCONVERT():
                 # Remove duplicates to simplify to one datapoint per averaging
                 dfTempD.drop_duplicates(inplace = True)
                 
-                # Combine all rest steps in a series except for the last step into 1 step
+                # Combine all rest steps except for the last step in a series into 1 step
                 for i in range(len(dfTempDSteps.index)):
                     if i != 0 and i != dfTempDSteps.index[-1]:
                         if dfTempDSteps['mode'][i] == 0 and dfTempDSteps['mode'][i-1] == 0 and dfTempDSteps['mode'][i+1] == 0:
@@ -236,6 +253,10 @@ class BIOCONVERT():
                         if dfTempDSteps['mode'][i] != 0 and dfTempDSteps['mode'][i-1] != 0:
                             dfTempD['Ns'][dfTempD['Ns'] == dfTempDSteps['Ns'][i]] = dfTempDSteps['Ns'][i-1]
                             dfTempDSteps['Ns'][i] = dfTempDSteps['Ns'][i-1]
+                            
+                # Label last step as rest step if not already (Test stopped prematurely)
+                dfTempD['mode'].iloc[-1] = 0
+                dfTempDSteps['mode'].iloc[-1] = 0
                 
                 # Relabel steps with continuous integers starting from 1
                 newDSteps = dfTempD.drop_duplicates(subset=['Ns'], ignore_index=True)
@@ -283,8 +304,8 @@ class BIOCONVERT():
             dfC = pd.DataFrame({})
             
             # Read, V average, and combine c file data
-            for f in c_files:
-                cFileLoc = Path(path) / f
+            for file in c_files:
+                cFileLoc = Path(path) / file
                 with open(cFileLoc, 'r') as f:
             
                     # Read beginning of c file to discover lines in header
@@ -299,8 +320,20 @@ class BIOCONVERT():
                 dfTempC['mode'].mask(dfTempC['control/mA'] == 0, 0, inplace=True)
                 dfTempC.drop(columns=['control/mA'], inplace=True)
                 
+                dfTempCSteps = dfTempC.drop_duplicates(subset=['Ns'], ignore_index=True)     
+                
+                # Detect if test ended prematurely
+                if dfTempCSteps['mode'].iloc[-1] != 0:
+                    print(file, 'ended prematurely. Adding dummy step to prevent overindexing.')
+                    
+                    # Add dummy step at end to prevent overindexing
+                    dummyC = dfTempC.loc[dfTempC.index[-1]:dfTempC.index[-1]].copy()
+                    dummyC['Ns'] = dummyC['Ns'] + 1
+                    dummyC['mode'] = 0
+                    dfTempC = pd.concat([dfTempC, dummyC], ignore_index=True)
+                    dfTempCSteps = pd.concat([dfTempCSteps, dummyC], ignore_index=True)
+                
                 # Iterate over each pulse starting with their preceeding OCV V rest step 
-                dfTempCSteps = dfTempC.drop_duplicates(subset=['mode', 'Ns'], ignore_index=True)
                 for i in dfTempCSteps.index:
                     if i != dfTempCSteps.index[-1]:
                         if dfTempCSteps['mode'][i] == 0 and dfTempCSteps['mode'][i+1] != 0:
@@ -329,12 +362,16 @@ class BIOCONVERT():
                                     #print(dfTempCSteps['Ns'][i+j], pulseInd)
                                 
                                 # Iterate over sets of nAvg datapoints within a CC step skipping the first and remainder datapoints
-                                while dfTempC['Ns'][pulseInd + nAvg] == dfTempCSteps['Ns'][i+j]:
-                                    
-                                    # Average together nAvg points into 1 point
-                                    CCPointVals = dfTempC.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
-                                    dfTempC.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
-                                    pulseInd = pulseInd + nAvg 
+                                if pulseInd + nAvg <= dfTempC.index[-1]:
+                                    while dfTempC['Ns'][pulseInd + nAvg] == dfTempCSteps['Ns'][i+j]:
+                                        
+                                        # Average together nAvg points into 1 point
+                                        CCPointVals = dfTempC.loc[pulseInd + 1:pulseInd + nAvg].mean(axis=0)
+                                        dfTempC.loc[pulseInd + 1:pulseInd + nAvg] = CCPointVals.values
+                                        pulseInd = pulseInd + nAvg 
+                                        
+                                        if pulseInd + nAvg > dfTempC.index[-1]:
+                                            break
                                     
                                 # Drop all remainder datapoints
                                 nextStepInd = dfTempC[dfTempC['Ns'] == dfTempCSteps['Ns'][i+j+1]].index[0]
@@ -355,8 +392,9 @@ class BIOCONVERT():
                             ocvFinVals = dfTempC[ocvFinSel].mean(axis=0)
                             dfTempC[ocvFinSel] = ocvFinVals
                         
-                        # Label steps after last OCV V as CC to prevent analysis (Cell stopped prematurely or lost voltage stability)
+                        # Label steps after last OCV V as CC to prevent analysis (Test stopped prematurely)
                         else:
+                            print(file, 'ended prematurely. Labeling last pulse as unfinished to prevent analysis.')
                             for i in range(len(dfTempCSteps.index)):
                                 if dfTempCSteps['mode'].iat[-i-1] == 0:
                                     dfTempCSteps['mode'].iat[-i-1] = 1
@@ -389,6 +427,10 @@ class BIOCONVERT():
                         if dfTempCSteps['mode'][i] != 0 and dfTempCSteps['mode'][i-1] != 0:
                             dfTempC['Ns'][dfTempC['Ns'] == dfTempCSteps['Ns'][i]] = dfTempCSteps['Ns'][i-1]
                             dfTempCSteps['Ns'][i] = dfTempCSteps['Ns'][i-1]
+                
+                # Label last step as rest step if not already (Test stopped prematurely)
+                dfTempC['mode'].iloc[-1] = 0
+                dfTempCSteps['mode'].iloc[-1] = 0
                 
                 # Relabel steps with continuous integers starting from 1
                 newCSteps = dfTempC.drop_duplicates(subset=['Ns'], ignore_index=True)
@@ -771,7 +813,7 @@ class AMID():
             #single_current sigcurves selection
             for i in range(len(ocv_inds)):
                 if i+1 == len(ocv_inds):
-                    print("No adjacent OCV steps detected. Protocol is likely not single_current")
+                    print("No adjacent OCV steps detected. Protocol is likely not single_current.")
                     break
                 if ocv_inds[i] == ocv_inds[i+1] - 1:
                     first_sig_step = prosteps[ocv_inds[i] - 1]
@@ -992,8 +1034,8 @@ class AMID():
             if self.capacitance_corr == True:
                 print("Capacitance correction cannot be applied to multi-current AMID data. Data is being analyzed without capacitance correction")
         else:
-            #icaps is the idealized capacity for a given voltage based upon dqdv
-            #currsCum is the cumulative averge current for determining where C should be calculated
+            # icaps is the idealized capacity for a given voltage based upon dqdv
+            # currsCum is the cumulative averge current for determining where C should be calculated
             icaps = []
             currsCum = []
             voltsAct = []
@@ -1006,7 +1048,7 @@ class AMID():
                 currents = np.absolute(step['Current'].values)
                 runtime = step['Time'].values
                 
-                #Collect suceeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
+                # Collect suceeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
                 if ocvstep['Step'].values[0] != 0:
                     ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
