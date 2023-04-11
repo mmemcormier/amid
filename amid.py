@@ -144,13 +144,13 @@ class BIOCONVERT():
     
                 # Convert 0A CC to NVX rest steps and trim off control I column
                 dfTempD['mode'].mask(dfTempD['control/mA'] == 0, 0, inplace=True)
+                dfTempD['mode'].mask(dfTempD['mode'] == 3, 0, inplace=True)
                 dfTempD.drop(columns=['control/mA'], inplace=True)
  
                 dfTempDSteps = dfTempD.drop_duplicates(subset=['Ns'], ignore_index=True)
                 
                 # Detect if test ended prematurely
                 if dfTempDSteps['mode'].iloc[-1] != 0:
-                    print(file, 'ended prematurely. Adding dummy step to prevent overindexing.')
                     
                     # Add dummy step at end to prevent overindexing
                     dummyD = dfTempD.loc[dfTempD.index[-1]:dfTempD.index[-1]].copy()
@@ -324,7 +324,6 @@ class BIOCONVERT():
                 
                 # Detect if test ended prematurely
                 if dfTempCSteps['mode'].iloc[-1] != 0:
-                    print(file, 'ended prematurely. Adding dummy step to prevent overindexing.')
                     
                     # Add dummy step at end to prevent overindexing
                     dummyC = dfTempC.loc[dfTempC.index[-1]:dfTempC.index[-1]].copy()
@@ -690,6 +689,7 @@ class AMID():
             
         self.df.rename(columns={'Capacity (Ah)': 'Capacity',
                                 'Potential (V)': 'Potential',
+                                'Potential vs. Counter (V)':'Label Potential',
                                 'Run Time (h)': 'Time',
                                 'Time (h)': 'Time',
                                 'Current (A)': 'Current',
@@ -731,6 +731,11 @@ class AMID():
         if len(inds) > 0:
             print('Indices being adjusted due to negative voltage: {}'.format(inds))
             self.df['Potential'][inds] = (t[inds-1] + t[inds+1])/2
+        
+        if 'Label Potential' not in self.df:
+            self.df['Label Potential'] = self.df['Potential'].copy()
+        else:
+            print('3-electrode data detected. Using working potential for calculations and complete potential for graphs and labels.')
         
         #plt.plot(self.df['Capacity'], self.df['Potential'])
         
@@ -836,11 +841,17 @@ class AMID():
         
             fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True,
                                     figsize=(10, 4), gridspec_kw={'wspace':0.0})
-            axs[0].plot(self.df['Time'], self.df['Potential'], 'k-')
+            axs[0].plot(self.df['Time'], self.df['Label Potential'], 'k-')
             axs[0].set_xlabel('Time (h)')
             axs[0].set_ylabel('Voltage (V)')
             axs[1].set_xlabel('Specific Capacity (mAh/g)')
             #axs[0].tick_params(direction='in', top=True, right=True)
+            
+            # plot signature curves first if first
+            if self.sc_stepnums[0] == 1:
+                axs[1].plot(self.sigdf['Capacity']*1000/self.mass, self.sigdf['Label Potential'],
+                    color='red',
+                    label='Sig Curves')
             
             stepnums = self.df['Prot_step'].unique()
             #print(stepnums)
@@ -867,17 +878,19 @@ class AMID():
                     rate = RATES[minarg]
                     label = 'C/{0} {1}'.format(int(rate), cyclabel)
                 
-                axs[1].plot(stepdf['Capacity']*1000/self.mass, stepdf['Potential'],
+                axs[1].plot(stepdf['Capacity']*1000/self.mass, stepdf['Label Potential'],
                             color=colors[c],
                             label=label)
+                
                 c = c + 1
                 
                 # if the next step is the start of sigcurves, plot sigcurves
                 if fullsteps[i] == self.sc_stepnums[0] - 1:
-                    #print('plottting sig curves...')
-                    axs[1].plot(self.sigdf['Capacity']*1000/self.mass, self.sigdf['Potential'],
-                                color='red',
-                                label='Sig Curves')
+                    #print('plotting sig curves...')
+                    axs[1].plot(self.sigdf['Capacity']*1000/self.mass, self.sigdf['Label Potential'],
+                            color='red',
+                            label='Sig Curves')
+            
             plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
             
             if xlims is not None:
@@ -924,8 +937,8 @@ class AMID():
         sigs = self.sigdf.loc[self.sigdf['Step'] != 0]
         #capacity = sigs['Capacity'].max() - sigs['Capacity'].min()
         #print('Specific Capacity: {} mAh'.format(capacity))
-        Vstart = np.around(sigs['Potential'].values[0], decimals=3)
-        Vend = np.around(sigs['Potential'].values[-1], decimals=3)
+        Vstart = np.around(sigs['Label Potential'].values[0], decimals=3)
+        Vend = np.around(sigs['Label Potential'].values[-1], decimals=3)
         print('Starting voltage: {:.3f} V'.format(Vstart))
         print('Ending voltage: {:.3f} V'.format(Vend))
         
@@ -1042,32 +1055,19 @@ class AMID():
             time = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
-                #step = step.loc[step['Potential'] > step['Potential'].values[-1] + 0.01]
                 stepcaps = step['Capacity'].values
                 volts = step['Potential'].values
+                lvolts = step['Label Potential'].values
                 currents = np.absolute(step['Current'].values)
                 runtime = step['Time'].values
                 
-                # Collect suceeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
+                # Collect succeeding OCV steps (1 OCV or 2 OCV) to calculate dqdv
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
                 if ocvstep['Step'].values[0] != 0:
                     ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
                 ocvstepcaps = ocvstep['Capacity'].values
                 ocvvolts = ocvstep['Potential'].values
-                
-                # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
-                if len(currents) > 3:
-                    if volts[-2] == np.around(volts[-2], decimals=2):
-                        cvoltind = -2
-                    elif len(currents) > 4:
-                        if volts[-3] == np.around(volts[-3], decimals=2):
-                            cvoltind = -3
-                        else:
-                            continue
-                    else:
-                        continue
-                else:
-                    continue
+                ocvlvolts = ocvstep['Label Potential'].values
                 
                 ir.append([np.absolute(volts[1] - volts[0])])
                 
@@ -1092,10 +1092,8 @@ class AMID():
                 resistdrop.append([ir[-1][-1]/currs[-1][0]])
                 
                 if cutvolts == []:
-                    prevstep = self.df.loc[self.df['Prot_step'] == sigsteps[i] - 1]
-                    prevvolts = prevstep['Potential'].values
-                    initcutvolt = np.around(prevvolts[-1], decimals=3)
-                cutvolts.append([ocvvolts[-1]]) 
+                    initcutvolt = np.around(lvolts[0], decimals=3)
+                cutvolts.append([ocvlvolts[-1]]) 
                 
             nvolts = len(caps)
             
@@ -1138,19 +1136,19 @@ class AMID():
                                 dlcaps.append(0)
 
                     caps[i] = caps[i] - dlcaps
-                    #if caps is calculated as negative or is first datapoint, this datapoint is effectively thrown out (caps set to 0)
+                    # if caps is calculated as negative or is first datapoint, this datapoint is effectively thrown out (caps set to 0)
                     for j in range(len(caps[i])):
                         if caps[i][j] < 0 or j == 0:
                             caps[i][j] = 0
                     
-                    icaps[i] = icaps[i] - dlcaps - dqdv[i][0]*currs[i]*rohm 
-                    #if icaps is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
+                    icaps[i] = icaps[i] - dlcaps #- dqdv[i][0]*currs[i]*rohm 
+                    # if icaps is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
                         if icaps[i][j] <= 0 or j == 0:
                             icaps[i][j] = float('NaN')
                     
-                    currsCum[i] = currsCum[i] - dlcaps/time[i]
-                    #if cumulative current is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
+                    #currsCum[i] = currsCum[i] - dlcaps/time[i] # disabled as it may amplify error if near 0
+                    # if cumulative current is calculated as negative or zero or is first datapoint, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
                         if currsCum[i][j] <= 0 or j == 0:
                             currsCum[i][j] = float('NaN')
@@ -1158,14 +1156,19 @@ class AMID():
             for i in range(nvolts):
                 fcaps.append(caps[i]/icaps[i])
                 eff_rates.append(icaps[i]/currsCum[i])
-                #outlier repair: if fcap or eff_rates is greater than succeeding points or NaN, reduce it to be equal to lowest of succeeding points.
-                for j in range(len(caps[i]) - 1):
-                    for k in range(len(caps[i]) - j - 1):
-                        if not(fcaps[i][j] <= fcaps[i][j + k + 1]):
-                            fcaps[i][j] = fcaps[i][j + k + 1]
-                        if not(eff_rates[i][j] <= eff_rates[i][j + k + 1]):
-                            eff_rates[i][j] = eff_rates[i][j + k + 1]
-
+                # outlier repair: if fcap or eff_rates is greater than succeeding points or NaN, reduce it to be equal to lowest of succeeding points.
+                #for j in range(len(caps[i]) - 1):
+                #    for k in range(len(caps[i]) - j - 1):
+                #        if not(fcaps[i][j] <= fcaps[i][j + k + 1]):
+                #            fcaps[i][j] = fcaps[i][j + k + 1]
+                #        if not(eff_rates[i][j] <= eff_rates[i][j + k + 1]):
+                #            eff_rates[i][j] = eff_rates[i][j + k + 1]
+                
+                # outlier repair: if fcap or eff_rates is NaN, make it equal to the succeeding point (or previous if last point).
+                for j in range(len(caps[i])):
+                    if fcaps[i][-j - 1] != fcaps[i][-j - 1] or eff_rates[i][-j - 1] != eff_rates[i][-j - 1]:
+                        fcaps[i][-j - 1] = fcaps[i][-j]
+                        eff_rates[i][-j - 1] = eff_rates[i][-j]
         
         print('Found {} signature curves.'.format(nvolts))
         cvolts = np.zeros(nvolts)
@@ -1208,8 +1211,6 @@ class AMID():
                 fcaps.pop(i-iadj)
                 eff_rates.pop(i-iadj)
                 rates.pop(i-iadj)
-                initcutvolt = cutvolts[i-iadj][0]
-                cutvolts.pop(i-iadj)
                 currs.pop(i-iadj)
                 ir.pop(i-iadj)
                 dqdv.pop(i-iadj)
@@ -1377,10 +1378,10 @@ class AMID():
                 plt.semilogx(Qfit, tau_fit, 'or', markersize=4, label='{0} - {1}'.format(self.cell_label, self.vlabels[j]))
                 if max(tau_fit) < 0.01:
                     plt.ylim(0, 0.01)
-                    plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
+                    #plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
                 elif max(tau_fit) < 0.1:
                     plt.ylim(0, 0.1)
-                    plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
+                    #plt.semilogx(Q_arr, 0.001*np.ones(len(Q_arr)), ':k')
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
                 plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
                 plt.ylabel('Fractional Capacity')
@@ -1664,17 +1665,12 @@ class AMID():
         narr = np.repeat(n.reshape(len(n), 1), len(self.alphas), axis=1)
         a = np.repeat(self.alphas.reshape(1, len(self.alphas)), np.shape(carr)[0], axis=0)
         
-        #Calculates without points with fcap less than 0.001 if the largest fcap is less than 0.1
-        #This allows better fits by treating the resistance growth at low voltages as an instantaneous ohmic resistance
-        #when total fcap is small enough that this makes a difference in the fit.
-        #Calculates inacessible capacity as 1 + tau if R_eff/Q > 1 AND fcap is less than 0.05 of largest fcap 
-        #by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
-        #This avoids the divergent region where tau=0 but infinite summation error is amplified. 
+        # Calculates inacessible capacity as 1 + tau if R_eff/Q > 1 AND fcap is less than 0.05 of the largest fcap 
+        # by setting n so that R_eff=Q. Otherwise standard AMIDR equation.
+        # This avoids the divergent region where tau=0 but infinite summation error is amplified. 
         result = []
         for i in range(len(c)):
-            if c[i] < 0.001 and max(c) < 0.1:
-                result.append(1)
-            elif R_eff>(3600*n[i]*D)/self.r**2 and c[i]/max(c) < 0.05:
+            if R_eff>(3600*n[i]*D)/self.r**2 and c[i]/max(c) < 0.05:
                 result.append(c[i]/c_max + 1)
             else:
                 result.append(c[i]/c_max + ((self.r**2)/(3*3600*n[i]*D))*(1/5 - 2*(np.sum(np.exp(-a[i]*(carr[i]/c_max)*3600*narr[i]*D/self.r**2)/a[i]))) + R_eff*self.r**2/(3600*n[i]*D))
