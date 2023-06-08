@@ -1431,18 +1431,20 @@ class AMID():
                     rdrop.append(self.resistdrop[i][0])
             
             DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'D (cm^2/s)': dconst, 'R_eff' : resist_eff,
-                                       'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv], 'Rfit (Ohm)' : resist, 'Rdrop (Ohm)' : rdrop, 'Fit Error' : fit_err})
+                                       'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv], 'Rfit (Ohm)' : resist, 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
             
+            # Calculates Free-path Tracer D from inputs
             if tracer_inputs:
                 theorcap = tracer_inputs[0]/1000*self.mass
                 initialcap = tracer_inputs[1]/1000*self.mass
                 temp = tracer_inputs[2]
                 kB = 1.380649E-23
                 e = 1.602176634E-19
-                dtconst = dconst*kB*temp*dqdv/(e*(theorcap-initialcap-self.soccaps))
+                pulsecap = initialcap + self.soccaps
+                dtconst = dconst*kB*temp*dqdv/(e*pulsecap*(1. - pulsecap/theorcap))
                 
-                DV_df['DT (cm^2/s)'] = dtconst
-                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'D (cm^2/s)', 'DT (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'Rdrop (Ohm)', 'Fit Error']]
+                DV_df['DT* (cm^2/s)'] = dtconst
+                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'D (cm^2/s)', 'DT* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error']]
             else:
                 dtconst = []
         
@@ -1546,7 +1548,7 @@ class AMID():
                     fig.suptitle('{}'.format(self.cell_label))
                 
                     axs[0].semilogy(voltage, dconst, 'k+-', linewidth=0.75, label='Chemical D')
-                    axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Tracer D')
+                    axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Free-path Tracer D')
                     #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
                     #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
                     axs[0].get_xaxis().set_ticks(voltage)
@@ -1622,7 +1624,7 @@ class AMID():
                 fig.suptitle('{}'.format(self.cell_label))
                 
                 axs[0].semilogy(voltage, dconst, 'k+-', linewidth=0.75, label='Chemical D')
-                axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Tracer D')
+                axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Free-path Tracer D')
                 axs[0].set_xlabel('Voltage (V)', fontsize=12)
                 axs[0].set_ylabel('D (cm$^2$/s)', fontsize=12)
                 axs[0].legend(frameon=False, fontsize=12)
@@ -1635,7 +1637,7 @@ class AMID():
                 
                 axs[2].semilogy(ivoltage, resist, 'k+-', linewidth=0.75, label='fit R')
                 axs[2].semilogy(ivoltage, resistdrop, 'kx-', linewidth=0.75, label='Vdrop R')
-                axs[2].set_ylim(1.0e1, 0.99e5)
+                axs[2].set_ylim(bottom=1.0e1)
                 axs[2].set_xlabel('Voltage (V)', fontsize=12)
                 axs[2].set_ylabel('R ($\Omega$)', fontsize=12)
                 axs[2].legend(frameon=False, fontsize=12)
