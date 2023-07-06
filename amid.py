@@ -3,7 +3,10 @@
 """
 Created on Tue May  4 07:44:54 2021
 
-@author: Marc M. E. Cormier
+@ Original AMID Author: Marc M. E. Cormier
+
+@ Current AMIDR Author: Mitchell Ball
+
 """
 
 import pandas as pd
@@ -565,12 +568,12 @@ class BIOCONVERT():
                 
                 plt.show()
         
-class AMID():
+class AMIDR():
     
-    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, bytesIO=None, export_data=True, use_input_cap=True, 
-                 fcap_min=0.0, single_current=False, capacitance_corr=False, spliced=False, force2e=False):
+    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, single_pulse, bytesIO=None, export_data=True, use_input_cap=True, 
+                 fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False):
         
-        self.single_curr = single_current
+        self.single_p = single_pulse
         self.capacitance_corr = capacitance_corr
         self.fcap_min = fcap_min
         self.cell_label = cell_label
@@ -662,7 +665,7 @@ class AMID():
             
         m = re.search('Cell: .+?(?=,|\\n)', header)
         m = m.group(0).split()
-        self.cellname = m[-1]
+        self.cellname = " ".join(m[1:])
         
         #self.cellname = headlines[1][-1]
         #self.mass = float(headlines[4][-1]) / 1000
@@ -702,8 +705,8 @@ class AMID():
         #print(self.df.columns)
         #print(self.df.Step.unique())
         
-        if single_current == True and spliced == True:
-            sys.exit("single_current cannot operate on spliced files. Manually clean up your spliced file and select spliced = false")
+        if single_pulse == True and spliced == True:
+            sys.exit("single_pulse cannot operate on spliced files. Manually clean up your spliced file and select spliced = false")
         
         # Add Prot_step column if column does not yet exist or spliced file is used.
         if 'Prot_step' not in self.df.columns or spliced == True:
@@ -784,7 +787,7 @@ class AMID():
         prosteps = newdf['Prot_step'].values
         ocv_inds = np.where(steps == 0)[0]
         
-        if self.single_curr is False:
+        if self.single_p is False:
             #print(ocv_inds)
             # Require a min of 3 OCV steps with the same step before and after
             # to qualify as a signature curve.
@@ -818,10 +821,10 @@ class AMID():
             if i == len(ocv_inds) - 1:
                 last_sig_step = prosteps[ocv_inds[-1] + 1]
         else:
-            #single_current sigcurves selection
+            #single_pulse sigcurves selection
             for i in range(len(ocv_inds)):
                 if i+1 == len(ocv_inds):
-                    print("No adjacent OCV steps detected. Protocol is likely not single_current.")
+                    print("No adjacent OCV steps detected. Protocol is likely not single_pulse.")
                     break
                 if ocv_inds[i] == ocv_inds[i+1] - 1:
                     first_sig_step = prosteps[ocv_inds[i] - 1]
@@ -913,7 +916,7 @@ class AMID():
         
         with plt.style.context('grapher'):
             fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True,
-                                    figsize=(6, 7), gridspec_kw={'hspace':0.0})
+                                    figsize=(10, 10), gridspec_kw={'hspace':0.0})
             colors = plt.get_cmap('viridis')(np.linspace(0,1,self.nvolts))
             
             for i in range(self.nvolts):
@@ -921,11 +924,14 @@ class AMID():
                                 color=colors[i], label=self.vlabels[i])
                 axs[1].semilogx(self.eff_rates[i], self.fcaps[i],
                                 color=colors[i])
-                
-            axs[1].set_xlabel('n$_{eff}$ in C/n$_{eff}$', fontsize=16)
-            axs[1].set_ylabel('Fractional Capacity', fontsize=16)
+            
+            if self.single_p:
+                axs[1].set_xlabel('q$_{tot}$/I', fontsize=16)
+            else:
+                axs[1].set_xlabel('n$_{eff}$ in C/n$_{eff}$', fontsize=16)
+            axs[1].set_ylabel('τ', fontsize=16)
             axs[0].set_ylabel('Specific Capacity (mAh/g)', fontsize=16)
-            axs[0].legend(frameon=False, bbox_to_anchor=(1.0, 0.0), loc='center left')
+            axs[0].legend(frameon=False, bbox_to_anchor=(1.0, 0.0), loc='center left', ncol = 1 + self.nvolts//30, fontsize=12)
             axs[0].tick_params(direction='in', which='both', top=True, right=True)
             axs[1].tick_params(direction='in', which='both', top=True, right=True)
             
@@ -962,7 +968,7 @@ class AMID():
         resistdrop = []
         eff_rates = []
         
-        if self.single_curr is False:
+        if self.single_p is False:
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
                 stepcaps = step['Capacity'].values
@@ -1057,7 +1063,7 @@ class AMID():
                     print("Current removed due to being below fcap min")
         
             if self.capacitance_corr == True:
-                print("Capacitance correction cannot be applied to multi-current AMID data. Data is being analyzed without capacitance correction")
+                print("Capacitance correction cannot be applied to multi-pulse AMID data. Data is being analyzed without capacitance correction.")
         else:
             # icaps is the idealized capacity for a given voltage based upon dqdv
             # currsCum is the cumulative averge current for determining where C should be calculated
@@ -1190,25 +1196,27 @@ class AMID():
             icap[i] = np.average(initcap[i])
             ccap[i] = cutcap[i][-1]
         
-        soccaps = (icap + ccap)/2
-        print('Midpoint capacities: {}'.format(soccaps*1000/self.mass))
-        print('Cutoff voltages: {}'.format(cvolts))
-        # Get midpoint voltage for each range.
-        #avg_volt[0] = (initcutvolt + cvolts[0])/2
-        #avg_volt[1:] = (cvolts[:-1] + cvolts[1:])/2
-        avg_volt = (ivolts + cvolts)/2
-        print('Midpoint voltages: {}'.format(avg_volt))
-        dvolts = np.zeros(nvolts)
-        #dvolts[0] = np.absolute(initcutvolt - cvolts[0])
-        #dvolts[1:] = np.absolute(cvolts[:-1] - cvolts[1:])
-        dvolts = np.absolute(ivolts - cvolts)
-        print('Voltage intervals widths: {}'.format(dvolts))
-        # Make voltage interval labels for legend.
-        #vlabels = ['{0:.3f} V - {1:.3f} V'.format(initcutvolt, cvolts[0])]
-        #vlabels = vlabels + ['{0:.3f} V - {1:.3f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
-        vlabels = ['{0:.3f} V - {1:.3f} V'.format(ivolts[i], cvolts[i]) for i in range(nvolts)]
-        print('Voltage interval labels: {}'.format(vlabels))
-        print('Found {} voltage intervals.'.format(nvolts))
+        with np.printoptions(precision=3):
+            soccaps = (icap + ccap)/2
+            print('Midpoint capacities: {}'.format((soccaps*1000/self.mass)))
+            print('Cutoff voltages: {}'.format(cvolts))
+            # Get midpoint voltage for each range.
+            #avg_volt[0] = (initcutvolt + cvolts[0])/2
+            #avg_volt[1:] = (cvolts[:-1] + cvolts[1:])/2
+            avg_volt = (ivolts + cvolts)/2
+            print('Midpoint voltages: {}'.format(avg_volt))
+            dvolts = np.zeros(nvolts)
+            #dvolts[0] = np.absolute(initcutvolt - cvolts[0])
+            #dvolts[1:] = np.absolute(cvolts[:-1] - cvolts[1:])
+            dvolts = np.absolute(ivolts - cvolts)
+            with np.printoptions(precision=4):
+                print('Voltage intervals widths: {}'.format(dvolts))
+            # Make voltage interval labels for legend.
+            #vlabels = ['{0:.3f} V - {1:.3f} V'.format(initcutvolt, cvolts[0])]
+            #vlabels = vlabels + ['{0:.3f} V - {1:.3f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
+            vlabels = ['{0:.3f} V - {1:.3f} V'.format(ivolts[i], cvolts[i]) for i in range(nvolts)]
+            print('Voltage interval labels: {}'.format(vlabels))
+            print('Found {} voltage intervals.'.format(nvolts))
         
         iadj = 0
         for i in range(nvolts):    
@@ -1241,9 +1249,9 @@ class AMID():
         return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, soccaps, ivolts, cvolts, avg_volt, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, r_corr=False, tracer_inputs = [], ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-13, 
-                   maxfcap_bounds=[0.95, 1.5], maxfcap_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, 
-                   shape='sphere',  nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
+    def fit_atlung(self, r, r_corr, tracer_inputs = [], ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
+                   fcapadj_bounds=[1.0, 1.5], fcapadj_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, 
+                   shape='sphere', nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
         self.r_corr = r_corr
@@ -1267,8 +1275,8 @@ class AMID():
             A, B = 1, 3
                 
         # Solve for tau vs Q
-        if r_corr is False:
-            print("Opt params: [Log(D), fCapAdj]")
+        if self.r_corr is False:
+            print("Optimum Parameters: {}".format("Log(Dc) fCapAdj"))
             Q_arr = np.logspace(-3, 2, nQ)
             tau_sol = np.zeros(nQ)
             tau_guess = 0.5
@@ -1276,8 +1284,10 @@ class AMID():
                 Q = Q_arr[i]
                 func = lambda tau: tau - 1 + (1/(A*Q))*(1/B - 2*(np.sum(np.exp(-self.alphas*tau*Q)/self.alphas)))
                 tau_sol[i] = fsolve(func, tau_guess, factor=1.)
+        elif self.single_p is False:
+            print("Optimum Parameters: {}".format("Log(Dc) fCapAdj Log(Reff) Log(Reff/Dc)"))
         else:
-            print("Opt params: [Log(D), fCapAdj, log(Reff), Log(Reff/D)]")
+            print("Optimum Parameters: {}".format("Log(Dc) Log(Reff) Log(Reff/Dc)"))
                 
         dconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
@@ -1300,28 +1310,28 @@ class AMID():
             #print("Currents: {} mA".format(I))
             #self._dqdv = np.average(self.dqdV[j][-1])*1000/self.mass
             
-            if self.single_curr is False:
+            if self.single_p is False:
                 # selects the dqdv of C/40 discharge/charge or nearest to C/40
                 act_rates = self.capacity / np.array(self.currs[j])
                 minarg = np.argmin(np.absolute(40 - act_rates))
                 dqdv[j] = self.dqdv[j][minarg]
             else:
                 dqdv[j] = self.dqdv[j][0]
-                # constrains maxfcap to 1
-                maxfcap_bounds=[1.0, 1.0000001]
+                # constrains fcapadj to 1
+                fcapadj_bounds=[1.0, 1.0000001]
 
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
             if self.r_corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
-                bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0]],
-                              [np.log10(D_bounds[1]), maxfcap_bounds[1]])
-                p0 = [np.log10(D_guess), maxfcap_guess]    
+                bounds = ([np.log10(D_bounds[0]), fcapadj_bounds[0]],
+                          [np.log10(D_bounds[1]), fcapadj_bounds[1]])
+                p0 = [np.log10(D_guess), fcapadj_guess]    
             else:
-                bounds = ([np.log10(D_bounds[0]), maxfcap_bounds[0], np.log10(R_eff_bounds[0])],
-                          [np.log10(D_bounds[1]), maxfcap_bounds[1], np.log10(R_eff_bounds[1])])
-                p0 = [np.log10(D_guess), maxfcap_guess, np.log10(R_eff_guess)]
+                bounds = ([np.log10(D_bounds[0]), fcapadj_bounds[0], np.log10(R_eff_bounds[0])],
+                          [np.log10(D_bounds[1]), fcapadj_bounds[1], np.log10(R_eff_bounds[1])])
+                p0 = [np.log10(D_guess), fcapadj_guess, np.log10(R_eff_guess)]
                 
             with plt.style.context('grapher'):
                 fig = plt.figure()
@@ -1332,7 +1342,8 @@ class AMID():
                                    bounds=bounds, sigma=weights,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
-                        print("{} Opt params: {}".format(self.vlabels[j], popt))
+                        with np.printoptions(precision=4):
+                            print("{}: {}".format(self.vlabels[j], popt))
                     else:
                         p0opt = [p0[2] - p0[0], p0[1], p0[2]]
                         boundsopt = [[bounds[0][2] - bounds[1][0], bounds[0][1], bounds[0][2]], 
@@ -1343,7 +1354,11 @@ class AMID():
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
                         popt = np.array([popt[2] - popt[0], popt[1], popt[2], popt[0]])
-                        print("{} Opt params: {}".format(self.vlabels[j], popt))
+                        with np.printoptions(precision=3):
+                            if self.single_p is False:
+                                print("{}: {}".format(self.vlabels[j], popt))
+                            else:
+                                print("{}: {}".format(self.vlabels[j], np.array([popt[2] - popt[0], popt[2], popt[0]])))
                         resist_eff[j] = 10**popt[2]
                         Q_arr = np.logspace(-6, 2, nQ)
                         tau_sol = np.zeros(nQ)
@@ -1393,8 +1408,8 @@ class AMID():
                 else:
                     plt.ylim(0, 1)
                 plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
-                plt.xlabel(r'$Q = 3600 n_{eff} D / r^2$')
-                plt.ylabel('Fractional Capacity')
+                plt.xlabel('$Q$')
+                plt.ylabel('$τ$')
                 plt.legend(frameon=False, loc='upper left', fontsize=10)
                 if Qfit[0] < 1.0e-4 or Qfit[1] < 1.0e-3:
                     plt.xlim(1.0e-6, 1.0e0)
@@ -1422,7 +1437,7 @@ class AMID():
             # get resist from ir drop
             rdrop = []
             for i in range(len(resist)):
-                if self.single_curr is False:
+                if self.single_p is False:
                     rdrop.append(np.average(self.resistdrop[i]))
             #        resistdrop.append([])
             #        for j in range(len(self.ir[i])):
@@ -1430,7 +1445,7 @@ class AMID():
                 else:
                     rdrop.append(self.resistdrop[i][0])
             
-            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'D (cm^2/s)': dconst, 'R_eff' : resist_eff,
+            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'Dc (cm^2/s)': dconst, 'R_eff' : resist_eff,
                                        'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv], 'Rfit (Ohm)' : resist, 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
             
             # Calculates Free-path Tracer D from inputs
@@ -1441,10 +1456,12 @@ class AMID():
                 kB = 1.380649E-23
                 e = 1.602176634E-19
                 pulsecap = initialcap + self.soccaps
+                soc = pulsecap/theorcap
                 dtconst = dconst*kB*temp*dqdv/(e*pulsecap*(1. - pulsecap/theorcap))
                 
-                DV_df['DT* (cm^2/s)'] = dtconst
-                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'D (cm^2/s)', 'DT* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error']]
+                DV_df['Dt* (cm^2/s)'] = dtconst
+                DV_df['SOC'] = soc
+                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'Dc (cm^2/s)', 'Dt* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error', 'SOC']]
             else:
                 dtconst = []
         
@@ -1456,11 +1473,13 @@ class AMID():
                 
             DV_df.to_excel(df_filename, index=False)
         
-        print('Fitted Dc: {}'.format(dconst))
-        print('Standard deviations from fit: {}'.format(sigma))
-        print('Atlung fit error: {}'.format(fit_err))
+        with np.printoptions(precision=3):
+            print('Fitted Dc: {}'.format(dconst))
+            if self.single_p is False:
+                print('Standard deviations from fit: {}'.format(sigma))
+                print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop
+        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.r_corr, self.cell_label, self.mass, self. dst
         
     def make_summary_graph(self, fit_data, export_fig=True, label=None):
         
@@ -1480,14 +1499,19 @@ class AMID():
         dqdv = fit_data[12]
         resist = fit_data[13]
         resistdrop = fit_data[14]
+        single_p = fit_data[15]
+        r_corr = fit_data[16]
+        cell_label = fit_data[17]
+        mass = fit_data[18]
+        dst = fit_data[19]
         
         with plt.style.context('grapher'):
-            if self.single_curr is False:
-                if self.r_corr is False:
+            if single_p is False:
+                if r_corr is False:
                     fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 15), sharex=True,
                     gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
                     
-                    axs[0].semilogy(voltage, dconst, 'ko--', linewidth=0.75, label='{}'.format(self.cell_label))
+                    axs[0].semilogy(voltage, dconst, 'ko--', linewidth=0.75, label='{}'.format(cell_label))
                     #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
                     #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
                     axs[0].get_xaxis().set_ticks(voltage)
@@ -1545,7 +1569,7 @@ class AMID():
                 else:
                     fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(7, 15), sharex=True,
                     gridspec_kw={'height_ratios': [2,1,1,1,1,1], 'hspace': 0.0})
-                    fig.suptitle('{}'.format(self.cell_label))
+                    fig.suptitle('{}'.format(cell_label))
                 
                     axs[0].semilogy(voltage, dconst, 'k+-', linewidth=0.75, label='Chemical D')
                     axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Free-path Tracer D')
@@ -1621,7 +1645,7 @@ class AMID():
             else:
                 fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
                 gridspec_kw={'height_ratios': [1,1,1,1,1,1], 'hspace': 0.0})
-                fig.suptitle('{}'.format(self.cell_label))
+                fig.suptitle('{}'.format(cell_label))
                 
                 axs[0].semilogy(voltage, dconst, 'k+-', linewidth=0.75, label='Chemical D')
                 axs[0].semilogy(voltage, dtconst, 'kx-', linewidth=0.75, label='Free-path Tracer D')
@@ -1633,7 +1657,7 @@ class AMID():
                 axs[1].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k:', linewidth=1.5)
                 axs[1].set_ylim(1.0e-6, 1.0)
                 axs[1].set_xlabel('Voltage (V)', fontsize=12)
-                axs[1].set_ylabel('R$_{eff}$', fontsize=12)
+                axs[1].set_ylabel('$R_{eff}$', fontsize=12)
                 
                 axs[2].semilogy(ivoltage, resist, 'k+-', linewidth=0.75, label='fit R')
                 axs[2].semilogy(ivoltage, resistdrop, 'kx-', linewidth=0.75, label='Vdrop R')
@@ -1657,16 +1681,16 @@ class AMID():
                                 np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
                                 color='k', alpha=0.3, edgecolor='k', linestyle='-')
                 
-                axs[5].plot(voltage, [i*1000/self.mass for i in dqdv], 'k+-', linewidth=0.75)
+                axs[5].plot(voltage, [i*1000/mass for i in dqdv], 'k+-', linewidth=0.75)
                 axs[5].set_xlabel('Voltage (V)', fontsize=12)
                 axs[5].set_ylabel('dq/dV (mAh/gV)', fontsize=12)
         
             if export_fig is True:
                 if label is None:
-                    figstr = 'D-V_{0}.jpg'.format(self.cell_label)
+                    figstr = 'D-V_{0}.jpg'.format(cell_label)
                 else:
-                    figstr = 'D-V_{0}_{1}.jpg'.format(self.cell_label, label)
-                diff_figname = self.dst / figstr
+                    figstr = 'D-V_{0}_{1}.jpg'.format(cell_label, label)
+                diff_figname = dst / figstr
                 plt.savefig(diff_figname)
                 
             else:
