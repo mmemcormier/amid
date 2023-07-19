@@ -17,8 +17,7 @@ from scipy import stats
 from pathlib import Path
 import re
 import matplotlib.pyplot as plt
-from matplotlib.ticker import (MultipleLocator, FormatStrFormatter,
-                               AutoMinorLocator)
+from matplotlib.ticker import (MultipleLocator)
 
 
 RATES = np.array([0.01, 0.05, 0.1, 0.2, 1/3, 0.5, 1, 2, 2.5, 5, 10, 20, 40, 80,
@@ -504,7 +503,7 @@ class BIOCONVERT():
             df = pd.concat([df, dfC])
         
         # Add Header info into complete file
-        pathFile = Path(path) / (name + '.csv')
+        pathFile = Path(path) / (name + ' All.csv')
         with open(pathFile, 'w') as f:
             f.write(csvHeader)
             
@@ -547,8 +546,8 @@ class BIOCONVERT():
             
             plt.legend(bbox_to_anchor=(1.0, 0.5), loc='center left')
             
-            if export_fig is True:
-                plt.savefig(Path(path) / 'complete_protocol_{}.jpg'.format(name))
+            if export_fig:
+                plt.savefig(Path(path) / '{} Protocol.jpg'.format(name))
             
             plt.show()
             
@@ -563,88 +562,42 @@ class BIOCONVERT():
                 axs.set_ylabel('Voltage (V)')
                 plt.legend(loc='lower right')
                 
-                if export_fig is True:
-                    plt.savefig(Path(path) / 'OCV_match_{}.jpg'.format(name))
+                if export_fig:
+                    plt.savefig(Path(path) / '{} OCV Match.jpg'.format(name))
                 
                 plt.show()
         
 class AMIDR():
     
-    def __init__(self, dstpath, srcpath, uhpc_files, cell_label, single_pulse, bytesIO=None, export_data=True, use_input_cap=True, 
+    def __init__(self, path, uhpc_file, single_pulse, export_data=True, use_input_cap=True, 
                  fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False):
         
         self.single_p = single_pulse
         self.capacitance_corr = capacitance_corr
         self.fcap_min = fcap_min
-        self.cell_label = cell_label
-        self.dst = Path(dstpath) / self.cell_label
+        self.cell_label = uhpc_file.split('.')[0]
+        self.dst = Path(path) / self.cell_label
         # If does not exist, create dir.
         if self.dst.is_dir() is False:
             self.dst.mkdir()
             print('Create directory: {}'.format(self.dst))
-        self.src = Path(srcpath)
+        self.src = Path(path)
         
-        ### TODO:
-        ### Need to modify concatenation tool to accommodate bytesIO
-        ### and new parsing method. 
-        if type(uhpc_files) is list:
-            self.uhpc_file = self.dst / "{}-concatenated.csv".format(self.cell_label)
-            # concatenate uhpc files if more than 1 is passed.
-            fnames = [self.src / f for f in uhpc_files]
-            with open(fnames[0], 'r') as f:
-                f.readline()
-                cellname = f.readline().strip().split()[-1]
-                f.readline()
-                f.readline()
-                mass = float(f.readline().strip().split()[-1]) / 1000
-                capacity = float(f.readline().strip().split()[-1])
-                for i in range(4):
-                    f.readline()
-                if f.readline().strip().split()[0] == '[Data]':
-                    hlinenum = 11
-                else:
-                    hlinenum = 12
-            with open(fnames[0], 'r') as f:
-                header = f.readlines()[:hlinenum]
-                    
-            df1 = pd.read_csv(fnames[0], header=hlinenum)
-            df2 = pd.read_csv(fnames[1], header=hlinenum)
-            df2['Time (h)'] = df2['Time (h)'].values + df1['Time (h)'].values[-1]
-            df2['Capacity (Ah)'] = df1['Capacity (Ah)'].values[-1] + df2['Capacity (Ah)'].values
-            df2['Prot.Step'] = df2['Prot.Step'].values + df1['Prot.Step'].values[-1]
-            df_concat = pd.concat([df1, df2], axis=0)
-            with open(self.uhpc_file, 'w') as g:
-                for i in range(len(header)):
-                    g.write(header[i])
-                df_concat.to_csv(path_or_buf=g, mode='a', index=False)
-        else:
-            self.uhpc_file = self.src / uhpc_files
-            
-        # need to update bytesIO read.
-        if bytesIO is not None:
-            headlines = []
-            i = 0
-            for line in bytesIO:
-                headlines.append(line.decode().strip().split())
-                if i == 12:
-                    break
-                i = i + 1
-        else:  
-            with open(self.uhpc_file, 'r') as f:
-                lines = f.readlines()
-            nlines = len(lines)
-            headlines = []
-            for i in range(nlines):
-                headlines.append(lines[i])
-                l = lines[i].strip().split()
-                if l[0][:6] == '[Data]':
-                    hline = lines[i+1]
-                    nskip = i+1
-                    break
-            
-            header = ''.join(headlines)
-            del lines
-
+        self.uhpc_file = self.src / uhpc_file
+             
+        with open(self.uhpc_file, 'r') as f:
+            lines = f.readlines()
+        nlines = len(lines)
+        headlines = []
+        for i in range(nlines):
+            headlines.append(lines[i])
+            l = lines[i].strip().split()
+            if l[0][:6] == '[Data]':
+                nskip = i+1
+                break
+        
+        header = ''.join(headlines)
+        del lines
                 
         # find mass and theoretical cap using re on header str
         m = re.search('Mass\s+\(.*\):\s+(\d+)?\.\d+', header)
@@ -684,12 +637,8 @@ class AMIDR():
         print('Positive electrode active mass: {} g'.format(self.mass))
         print('Input cell capacity: {} Ah'.format(self.input_cap))
         
-        if bytesIO is None:
-            self.df = pd.read_csv(self.uhpc_file, header=nskip)
-            #self.df = pd.read_csv(self.uhpc_file, header=hlinenum)
-        else:
-            self.df = pd.read_csv(bytesIO, header=hlinenum)
-            
+        self.df = pd.read_csv(self.uhpc_file, header=nskip)
+        
         self.df.rename(columns={'Capacity (Ah)': 'Capacity',
                                 'Potential (V)': 'Potential',
                                 'Potential vs. Counter (V)':'Label Potential',
@@ -751,18 +700,18 @@ class AMIDR():
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
         print('Specific Capacity achieved in advanced protocol (signature curves): {0:.2f} mAh/g'.format(self.spec_cap*1000))
-        if use_input_cap is True:
+        if use_input_cap:
             self.capacity = self.input_cap
         print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, self.currs, \
-        self.ir, self.dqdv, self.resistdrop, self.soccaps, self.ivolts, self.cvolts, self.avg_volts, \
-        self.dvolts, self.vlabels = self._parse_sigcurves()
+        self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, self.currs, self.ir, \
+        self.dqdv, self.resistdrop, self.icaps, self.avg_caps, self.ivolts, self.cvolts, \
+        self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         
         self.nvolts = len(self.caps)
                     
-        if export_data is True:
-            caprate_fname = self.dst / '{0}_rate-cap.xlsx'.format(self.cell_label)
+        if export_data:
+            caprate_fname = self.dst / '{0} Parsed.xlsx'.format(self.cell_label)
             writer = pd.ExcelWriter(caprate_fname)
             for i in range(self.nvolts):
                 caprate_df = pd.DataFrame(data={'specific_capacity': self.scaps[i],
@@ -774,8 +723,6 @@ class AMIDR():
             writer.close()
             
         print('Done parsing signature curves.')
-        
-
 
     def _find_sigcurves(self):
         """
@@ -904,9 +851,9 @@ class AMIDR():
             if ylims is not None:
                 axs[0].set_ylim(ylims[0], ylims[1])
             
-            if export_fig is True:
-                plt.savefig(self.dst / 'protocol_vis_{}.jpg'.format(self.cell_label))
-            elif return_fig is True:
+            if export_fig:
+                plt.savefig(self.dst / '{} Protocol.jpg'.format(self.cell_label))
+            elif return_fig:
                 return fig
             else:
                 plt.show()
@@ -926,7 +873,7 @@ class AMIDR():
                                 color=colors[i])
             
             if self.single_p:
-                axs[1].set_xlabel('q$_{tot}$/I', fontsize=16)
+                axs[1].set_xlabel('q$_{tot}$/I (h)', fontsize=16)
             else:
                 axs[1].set_xlabel('n$_{eff}$ in C/n$_{eff}$', fontsize=16)
             axs[1].set_ylabel('τ', fontsize=16)
@@ -935,8 +882,8 @@ class AMIDR():
             axs[0].tick_params(direction='in', which='both', top=True, right=True)
             axs[1].tick_params(direction='in', which='both', top=True, right=True)
             
-            if export_fig is True:
-                plt.savefig(self.dst / 'cap-rate_{}.jpg'.format(self.cell_label))
+            if export_fig:
+                plt.savefig(self.dst / '{} Parsed.jpg'.format(self.cell_label))
             else:
                 plt.show()
 
@@ -1065,9 +1012,9 @@ class AMIDR():
             if self.capacitance_corr == True:
                 print("Capacitance correction cannot be applied to multi-pulse AMID data. Data is being analyzed without capacitance correction.")
         else:
-            # icaps is the idealized capacity for a given voltage based upon dqdv
+            # id_caps is the idealized capacity for a given voltage based upon dqdv
             # currsCum is the cumulative averge current for determining where C should be calculated
-            icaps = []
+            id_caps = []
             currsCum = []
             voltsAct = []
             time = []
@@ -1094,7 +1041,7 @@ class AMIDR():
                 time.append(np.absolute(runtime[1:] - runtime[0]))
                 caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
                 scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
-                icaps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
+                id_caps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
                 currs.append(currents[1:])
                 voltsAct.append(volts[1:])
                 
@@ -1162,11 +1109,11 @@ class AMIDR():
                         if caps[i][j] < 0:
                             caps[i][j] = 0
                     
-                    icaps[i] = icaps[i] - dlcaps #- dqdv[i][0]*currs[i]*rohm 
-                    # if icaps is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
+                    id_caps[i] = id_caps[i] - dlcaps #- dqdv[i][0]*currs[i]*rohm 
+                    # if id_caps is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if icaps[i][j] <= 0:
-                            icaps[i][j] = float('NaN')
+                        if id_caps[i][j] <= 0:
+                            id_caps[i][j] = float('NaN')
                     
                     #currsCum[i] = currsCum[i] - dlcaps/time[i] # disabled as it may amplify error if near 0
                     # if cumulative current is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
@@ -1175,8 +1122,8 @@ class AMIDR():
                             currsCum[i][j] = float('NaN')
             
             for i in range(nvolts):
-                fcaps.append(caps[i]/icaps[i])
-                eff_rates.append(icaps[i]/currsCum[i])
+                fcaps.append(caps[i]/id_caps[i])
+                eff_rates.append(id_caps[i]/currsCum[i])
                 
                 # outlier repair: if fcap or eff_rates is NaN, make it equal to the succeeding point (or previous if last point).
                 for j in range(len(caps[i])):
@@ -1188,29 +1135,30 @@ class AMIDR():
         
         ivolts = np.zeros(nvolts)
         cvolts = np.zeros(nvolts)
-        icap = np.zeros(nvolts)
-        ccap = np.zeros(nvolts)
+        icaps = np.zeros(nvolts)
+        ccaps = np.zeros(nvolts)
         for i in range(nvolts):
             ivolts[i] = np.average(initvolts[i])
             cvolts[i] = np.average(cutvolts[i])
-            icap[i] = np.average(initcap[i])
-            ccap[i] = cutcap[i][-1]
+            icaps[i] = np.average(initcap[i])
+            ccaps[i] = cutcap[i][-1]
         
         with np.printoptions(precision=3):
-            soccaps = (icap + ccap)/2
-            print('Midpoint capacities: {}'.format((soccaps*1000/self.mass)))
-            print('Cutoff voltages: {}'.format(cvolts))
+            avg_caps = (icaps + ccaps)/2
             # Get midpoint voltage for each range.
-            #avg_volt[0] = (initcutvolt + cvolts[0])/2
-            #avg_volt[1:] = (cvolts[:-1] + cvolts[1:])/2
-            avg_volt = (ivolts + cvolts)/2
-            print('Midpoint voltages: {}'.format(avg_volt))
+            #avg_volts[0] = (initcutvolt + cvolts[0])/2
+            #avg_volts[1:] = (cvolts[:-1] + cvolts[1:])/2
+            avg_volts = (ivolts + cvolts)/2                
             dvolts = np.zeros(nvolts)
             #dvolts[0] = np.absolute(initcutvolt - cvolts[0])
             #dvolts[1:] = np.absolute(cvolts[:-1] - cvolts[1:])
             dvolts = np.absolute(ivolts - cvolts)
-            with np.printoptions(precision=4):
-                print('Voltage intervals widths: {}'.format(dvolts))
+            if self.single_p is False:
+                print('Midpoint capacities (mAh/g): {}'.format((avg_caps*1000/self.mass)))
+                print('Cutoff voltages: {}'.format(cvolts))
+                print('Midpoint voltages: {}'.format(avg_volts))
+                with np.printoptions(precision=4):
+                    print('Voltage intervals widths: {}'.format(dvolts))
             # Make voltage interval labels for legend.
             #vlabels = ['{0:.3f} V - {1:.3f} V'.format(initcutvolt, cvolts[0])]
             #vlabels = vlabels + ['{0:.3f} V - {1:.3f} V'.format(cvolts[i], cvolts[i+1]) for i in range(nvolts-1)]
@@ -1231,9 +1179,10 @@ class AMIDR():
                 ir.pop(i-iadj)
                 dqdv.pop(i-iadj)
                 resistdrop.pop(i-iadj)
-                soccaps = np.delete(soccaps, i-iadj)
+                icaps = np.delete(icaps, i-iadj)
+                avg_caps = np.delete(avg_caps, i-iadj)
                 ivolts = np.delete(ivolts, i-iadj)
-                avg_volt = np.delete(avg_volt, i-iadj)
+                avg_volts = np.delete(avg_volts, i-iadj)
                 dvolts = np.delete(dvolts, i-iadj)
                 vlabels = np.delete(vlabels, i-iadj)
                 iadj = iadj + 1
@@ -1246,19 +1195,20 @@ class AMIDR():
             new_scaps.append(1000*np.array(scaps[i])/self.mass)
         #print(new_caps)
 
-        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, soccaps, ivolts, cvolts, avg_volt, dvolts, vlabels 
+        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, icaps, avg_caps, ivolts, cvolts, avg_volts, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, r_corr, tracer_inputs = [], ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
+    def fit_atlung(self, r, R_corr, tracer_inputs = [], micR_input = 4.9, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
                    fcapadj_bounds=[1.0, 1.5], fcapadj_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, 
                    shape='sphere', nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
 
         self.r = r
-        self.r_corr = r_corr
+        self.R_corr = R_corr
         
         if shape not in SHAPES:
             print('The specified shape {0} is not supported.'.format(shape))
-            print('Supported shapes are: {1}. Defaulting to sphere.'.format(SHAPES))
+            print('Supported shapes are: {0}. Defaulting to sphere.'.format(SHAPES))
+            
         # Get geometric constants according to particle shape.
         if shape == 'sphere':
             self.alphas = []
@@ -1275,7 +1225,7 @@ class AMIDR():
             A, B = 1, 3
                 
         # Solve for tau vs Q
-        if self.r_corr is False:
+        if self.R_corr is False:
             print("Optimum Parameters: {}".format("Log(Dc) fCapAdj"))
             Q_arr = np.logspace(-3, 2, nQ)
             tau_sol = np.zeros(nQ)
@@ -1322,7 +1272,7 @@ class AMIDR():
 
             #print("dq/dV: {} Ah/V".format(dqdv[j]))
             
-            if self.r_corr is False:
+            if self.R_corr is False:
                 C = np.sum(self.ir[j])
                 weights = (C - self.ir[j]) / np.sum(C - self.ir[j])
                 bounds = ([np.log10(D_bounds[0]), fcapadj_bounds[0]],
@@ -1337,7 +1287,7 @@ class AMIDR():
                 fig = plt.figure()
                 
                 if shape == 'sphere':
-                    if self.r_corr is False:
+                    if self.R_corr is False:
                         popt, pcov = curve_fit(self._spheres, (fcap, rates), z, p0=p0,
                                    bounds=bounds, sigma=weights,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0],
@@ -1347,9 +1297,9 @@ class AMIDR():
                     else:
                         p0opt = [p0[2] - p0[0], p0[1], p0[2]]
                         boundsopt = [[bounds[0][2] - bounds[1][0], bounds[0][1], bounds[0][2]], 
-                                      [bounds[1][2] - bounds[0][0], bounds[1][1], bounds[1][2]]]
+                                     [bounds[1][2] - bounds[0][0], bounds[1][1], bounds[1][2]]]
                         
-                        popt, pcov = curve_fit(self._spheres_r_corr, (fcap, rates), z, p0=p0opt,
+                        popt, pcov = curve_fit(self._spheres_R_corr, (fcap, rates), z, p0=p0opt,
                                    bounds=boundsopt,
                                    method='trf', max_nfev=5000, x_scale=[1.0, 1.0, 1.0],
                                    ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
@@ -1395,7 +1345,7 @@ class AMIDR():
                     dQ = np.absolute(Q_arr - Qfit[k])
                     minarg = np.argmin(dQ)
                     error[k] = np.absolute(tau_fit[k] - tau_sol[minarg])
-                if r_corr is False:
+                if R_corr is False:
                     fit_err[j] = np.sum(weights*error)
                 else:
                     fit_err[j] = np.sqrt(np.average((error/cap_max[j])**2))
@@ -1407,7 +1357,7 @@ class AMIDR():
                     plt.ylim(0, 0.1)
                 else:
                     plt.ylim(0, 1)
-                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
+                plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung ({})'.format(shape))
                 plt.xlabel('$Q$')
                 plt.ylabel('$τ$')
                 plt.legend(frameon=False, loc='upper left', fontsize=10)
@@ -1417,17 +1367,17 @@ class AMIDR():
                 else:
                     plt.xlim(1.0e-4, 1.0e2)
                     plt.xticks(10.**np.arange(-4, 3))
-                if export_fig is True:
+                if export_fig:
                     if label is None:
-                        figname = self.dst / '{0}_Atlung-{1}_{2:.3f}.jpg'.format(self.cell_label, shape, self.avg_volts[j])
+                        figname = self.dst / '{0} {1:.3f} V ({2}).jpg'.format(self.cell_label, self.avg_volts[j], shape)
                     else:
-                        figname = self.dst / '{0}-{1}_Atlung-{2}_{3:.3f}.jpg'.format(self.cell_label, label, shape, self.avg_volts[j])
+                        figname = self.dst / '{0}-{1} {2:.3f} V ({3}).jpg'.format(self.cell_label, label, self.avg_volts[j], shape)
                     plt.savefig(figname)
                 else:
                     plt.show()
                 plt.close()
         
-        if r_corr is False:
+        if R_corr is False:
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
         else:
             # get resist from resist_eff
@@ -1445,8 +1395,8 @@ class AMIDR():
                 else:
                     rdrop.append(self.resistdrop[i][0])
             
-            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'Dc (cm^2/s)': dconst, 'R_eff' : resist_eff,
-                                       'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv], 'Rfit (Ohm)' : resist, 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
+            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'Dc (cm^2/s)': dconst, 'R_eff' : resist_eff, 'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv],
+                                       'Rfit (Ohm)' : resist, 'micR (Ohmcm^2)' : A*resist*self.mass/(r*micR_input), 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
             
             # Calculates Free-path Tracer D from inputs
             if tracer_inputs:
@@ -1455,21 +1405,24 @@ class AMIDR():
                 temp = tracer_inputs[2]
                 kB = 1.380649E-23
                 e = 1.602176634E-19
-                pulsecap = initialcap + self.soccaps
-                soc = pulsecap/theorcap
-                dtconst = dconst*kB*temp*dqdv/(e*pulsecap*(1. - pulsecap/theorcap))
+                pulsecaps = initialcap + self.avg_caps
+                ipulsecaps = initialcap + self.icaps
+                socs = 1. - pulsecaps/theorcap
+                isocs = 1. - ipulsecaps/theorcap
+                dtconst = dconst*kB*temp*dqdv/(e*pulsecaps*(1. - pulsecaps/theorcap))
                 
                 DV_df['Dt* (cm^2/s)'] = dtconst
-                DV_df['SOC'] = soc
-                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'Dc (cm^2/s)', 'Dt* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error', 'SOC']]
+                DV_df['SOC'] = socs
+                DV_df['Initial SOC'] = isocs
+                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'SOC', 'Initial SOC', 'Dc (cm^2/s)', 'Dt* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'micR (Ohmcm^2)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error']]
             else:
                 dtconst = []
-        
-        if export_data is True:
+
+        if export_data:
             if label is None:
-                df_filename = self.dst / '{0}_D-V_{1}.xlsx'.format(self.cell_label, shape)
+                df_filename = self.dst / '{0} Fitted ({1}).xlsx'.format(self.cell_label, shape)
             else:
-                df_filename = self.dst / '{0}-{1}_D-V_{2}.xlsx'.format(self.cell_label, label, shape)
+                df_filename = self.dst / '{0}-{1} Fitted ({2}).xlsx'.format(self.cell_label, label, shape)
                 
             DV_df.to_excel(df_filename, index=False)
         
@@ -1479,7 +1432,7 @@ class AMIDR():
                 print('Standard deviations from fit: {}'.format(sigma))
                 print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.r_corr, self.cell_label, self.mass, self. dst
+        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.R_corr, self.cell_label, self.mass, self.dst
         
     def make_summary_graph(self, fit_data, export_fig=True, label=None):
         
@@ -1500,14 +1453,14 @@ class AMIDR():
         resist = fit_data[13]
         resistdrop = fit_data[14]
         single_p = fit_data[15]
-        r_corr = fit_data[16]
+        R_corr = fit_data[16]
         cell_label = fit_data[17]
         mass = fit_data[18]
         dst = fit_data[19]
         
         with plt.style.context('grapher'):
             if single_p is False:
-                if r_corr is False:
+                if R_corr is False:
                     fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 15), sharex=True,
                     gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
                     
@@ -1685,17 +1638,16 @@ class AMIDR():
                 axs[5].set_xlabel('Voltage (V)', fontsize=12)
                 axs[5].set_ylabel('dq/dV (mAh/gV)', fontsize=12)
         
-            if export_fig is True:
+            if export_fig:
                 if label is None:
-                    figstr = 'D-V_{0}.jpg'.format(cell_label)
+                    figstr = '{0} Summary.jpg'.format(cell_label)
                 else:
-                    figstr = 'D-V_{0}_{1}.jpg'.format(cell_label, label)
+                    figstr = '{0}-{1} Summary.jpg'.format(cell_label, label)
                 diff_figname = dst / figstr
                 plt.savefig(diff_figname)
                 
             else:
                 plt.show()
-                
 
     def _spheres(self, X, logD, c_max):
         
@@ -1708,7 +1660,7 @@ class AMIDR():
         
         return c/c_max + ((self.r**2)/(3*3600*n*D))*(1/5 - 2*(np.sum(np.exp(-a*(carr/c_max)*3600*narr*D/self.r**2)/a, axis=1)))
     
-    def _spheres_r_corr(self, X, logR_effDivD, c_max, logR_eff):
+    def _spheres_R_corr(self, X, logR_effDivD, c_max, logR_eff):
         
         D = 10**(logR_eff - logR_effDivD)
         R_eff = 10**logR_eff
@@ -1753,3 +1705,172 @@ class AMIDR():
         self.vlabels = ['inserted']
         self.avg_volts = [0]
         self.dqdv = [list(new_rate_cap['dqdv'].values)] 
+        
+class BINAVERAGE():
+    
+    def __init__(self, cellpaths, matpath, matname, binsize = 0.025, maxdqdVchange = 2, mindqdVchange = 0.5, export_data=True, export_fig=True):
+        
+        # Generate inpute dataframes
+        df = pd.DataFrame({})
+        dfD = pd.DataFrame({})
+        dfC = pd.DataFrame({})
+        
+        # Find and read file data into dataframes
+        cellpathnames =''
+        
+        for cellpath in cellpaths:
+            if cellpathnames == '':
+                cellpathnames = Path(cellpath).name
+            else:
+                cellpathnames = cellpathnames + ', ' + Path(cellpath).name
+            for path in Path(cellpath).iterdir():
+                if path.is_dir() and "Discharge" in str(path):
+                    for file in path.iterdir():
+                        if file.is_file() and "Discharge Fitted" in str(file):
+                            print("Found discharge data for cell {}".format(Path(cellpath).name))
+                            
+                            dfDnew = pd.read_excel(file)
+                            
+                            # Remove datapoints where 
+                            # dq/dV change between subsequent datapoint is greater than the max dqdV factor
+                            # or the capacity span is less the minimum capacity span.
+                            keepSel = (((dfDnew/dfDnew.set_index(dfDnew.index + 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfDnew/dfDnew.set_index(dfDnew.index - 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfDnew.set_index(dfDnew.index + 1)/dfDnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfDnew.set_index(dfDnew.index - 1)/dfDnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                        (dfDnew['Cap Span'] > mindqdVchange))[1:-1]
+                                
+                            df = pd.concat([df, dfDnew[keepSel]], ignore_index = True)
+                            dfD = pd.concat([dfD, dfDnew[keepSel]], ignore_index = True)
+                            
+                if path.is_dir() and "Charge" in str(path):
+                    for file in path.iterdir():
+                        if file.is_file() and "Charge Fitted" in str(file):
+                            print("Found charge data for cell {}".format(Path(cellpath).name))
+                            
+                            dfCnew = pd.read_excel(file)
+                            
+                            # Remove datapoints where 
+                            # dq/dV change between subsequent datapoint is greater than the max dqdV factor
+                            # or the capacity span is less the minimum capacity span.
+                            keepSel = (((dfCnew/dfCnew.set_index(dfCnew.index + 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfCnew/dfCnew.set_index(dfCnew.index - 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfCnew.set_index(dfCnew.index + 1)/dfCnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                       ((dfCnew.set_index(dfCnew.index - 1)/dfCnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
+                                        (dfCnew['Cap Span'] > mindqdVchange))[1:-1]
+                            
+                            df = pd.concat([df, dfCnew[keepSel]], ignore_index = True)
+                            dfC = pd.concat([dfC, dfCnew[keepSel]], ignore_index = True)
+        
+        # Establish bins and output dataframes
+        firstbinnum = int(min(min(df['Voltage (V)']), min(df['Initial Voltage (V)']))//binsize)
+        lastbinnum = int(max(max(df['Voltage (V)']), max(df['Initial Voltage (V)']))//binsize)
+
+        dfO = pd.DataFrame({'Voltage (V)': np.linspace(firstbinnum*binsize, lastbinnum*binsize, abs(firstbinnum - lastbinnum) + 1) + binsize/2})
+        dfOD = pd.DataFrame({'Voltage (V)': np.linspace(firstbinnum*binsize, lastbinnum*binsize, abs(firstbinnum - lastbinnum) + 1) + binsize/2})
+        dfOC = pd.DataFrame({'Voltage (V)': np.linspace(firstbinnum*binsize, lastbinnum*binsize, abs(firstbinnum - lastbinnum) + 1) + binsize/2})
+
+        # Fill output dataframes
+        for i in dfO.index:
+            
+            # Select data points with voltages within the bin
+            binSel = (df['Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                     (df['Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+            binSelD = (df['Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                      (df['Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+            binSelC = (df['Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                      (df['Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+                     
+            # Select data points with initial voltages within the bin (for resistances which are plotted at initial cap)
+
+            ibinSel = (df['Initial Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                      (df['Initial Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+            ibinSelD = (df['Initial Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                       (df['Initial Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+            ibinSelC = (df['Initial Voltage (V)'] >= dfO['Voltage (V)'][i] - binsize/2) & \
+                       (df['Initial Voltage (V)'] < dfO['Voltage (V)'][i] + binsize/2)
+            
+            # Calculate geometric mean and standard deviation for diffusivities and resistances
+            dfO.loc[i, 'Dc (cm^2/s)'] = np.exp(np.log(df['Dc (cm^2/s)'][binSel]).mean(axis=0))
+            dfO.loc[i, 'Dc geoSTD'] = np.exp(np.log(df['Dc (cm^2/s)'][binSel]).std(axis=0))
+            dfO.loc[i, 'Dt* (cm^2/s)'] = np.exp(np.log(df['Dt* (cm^2/s)'][binSel]).mean(axis=0))
+            dfO.loc[i, 'Dt* geoSTD'] = np.exp(np.log(df['Dt* (cm^2/s)'][binSel]).std(axis=0))
+            dfO.loc[i, 'Rfit (Ohm)'] = np.exp(np.log(df['Rfit (Ohm)'][ibinSel]).mean(axis=0))
+            dfO.loc[i, 'Rfit geoSTD'] = np.exp(np.log(df['Rfit (Ohm)'][ibinSel]).std(axis=0))
+            dfO.loc[i, 'micR (Ohmcm^2)'] = np.exp(np.log(df['micR (Ohmcm^2)'][ibinSel]).mean(axis=0))
+            dfO.loc[i, 'micR geoSTD'] = np.exp(np.log(df['micR (Ohmcm^2)'][ibinSel]).std(axis=0))
+            dfO.loc[i, 'Rdrop (Ohm)'] = np.exp(np.log(df['Rdrop (Ohm)'][ibinSel]).mean(axis=0))
+            dfO.loc[i, 'Rdrop geoSTD'] = np.exp(np.log(df['Rdrop (Ohm)'][ibinSel]).std(axis=0))
+            dfOD.loc[i, 'Dc (cm^2/s)'] = np.exp(np.log(dfD['Dc (cm^2/s)'][binSelD]).mean(axis=0))
+            dfOD.loc[i, 'Dc geoSTD'] = np.exp(np.log(dfD['Dc (cm^2/s)'][binSelD]).std(axis=0))
+            dfOD.loc[i, 'Dt* (cm^2/s)'] = np.exp(np.log(dfD['Dt* (cm^2/s)'][binSelD]).mean(axis=0))
+            dfOD.loc[i, 'Dt* geoSTD'] = np.exp(np.log(dfD['Dt* (cm^2/s)'][binSelD]).std(axis=0))
+            dfOD.loc[i, 'Rfit (Ohm)'] = np.exp(np.log(dfD['Rfit (Ohm)'][ibinSelD]).mean(axis=0))
+            dfOD.loc[i, 'Rfit geoSTD'] = np.exp(np.log(dfD['Rfit (Ohm)'][ibinSelD]).std(axis=0))
+            dfOD.loc[i, 'micR (Ohmcm^2)'] = np.exp(np.log(dfD['micR (Ohmcm^2)'][ibinSelD]).mean(axis=0))
+            dfOD.loc[i, 'micR geoSTD'] = np.exp(np.log(dfD['micR (Ohmcm^2)'][ibinSelD]).std(axis=0))
+            dfOD.loc[i, 'Rdrop (Ohm)'] = np.exp(np.log(dfD['Rdrop (Ohm)'][ibinSelD]).mean(axis=0))
+            dfOD.loc[i, 'Rdrop geoSTD'] = np.exp(np.log(dfD['Rdrop (Ohm)'][ibinSelD]).std(axis=0))
+            dfOC.loc[i, 'Dc (cm^2/s)'] = np.exp(np.log(dfC['Dc (cm^2/s)'][binSelC]).mean(axis=0))
+            dfOC.loc[i, 'Dc geoSTD'] = np.exp(np.log(dfC['Dc (cm^2/s)'][binSelC]).std(axis=0))
+            dfOC.loc[i, 'Dt* (cm^2/s)'] = np.exp(np.log(dfC['Dt* (cm^2/s)'][binSelC]).mean(axis=0))
+            dfOC.loc[i, 'Dt* geoSTD'] = np.exp(np.log(dfC['Dt* (cm^2/s)'][binSelC]).std(axis=0))
+            dfOC.loc[i, 'Rfit (Ohm)'] = np.exp(np.log(dfC['Rfit (Ohm)'][ibinSelC]).mean(axis=0))
+            dfOC.loc[i, 'Rfit geoSTD'] = np.exp(np.log(dfC['Rfit (Ohm)'][ibinSelC]).std(axis=0))
+            dfOC.loc[i, 'micR (Ohmcm^2)'] = np.exp(np.log(dfC['micR (Ohmcm^2)'][ibinSelC]).mean(axis=0))
+            dfOC.loc[i, 'micR geoSTD'] = np.exp(np.log(dfC['micR (Ohmcm^2)'][ibinSelC]).std(axis=0))
+            dfOC.loc[i, 'Rdrop (Ohm)'] = np.exp(np.log(dfC['Rdrop (Ohm)'][ibinSelC]).mean(axis=0))
+            dfOC.loc[i, 'Rdrop geoSTD'] = np.exp(np.log(dfC['Rdrop (Ohm)'][ibinSelC]).std(axis=0))
+            
+            # Calculate arithmetic mean and standard deviation for all else
+            dfO.loc[i, 'Voltage STD'] = df['Voltage (V)'][binSel].std(axis=0)
+            dfO.loc[i, 'SOC'] = df['SOC'][binSel].mean(axis=0)
+            dfO.loc[i, 'SOC STD'] = df['SOC'][binSel].std(axis=0)
+            dfO.loc[i, 'dqdV (mAh/gV)'] = df['dqdV (mAh/gV)'][binSel].mean(axis=0)
+            dfO.loc[i, 'dqdV STD'] = df['dqdV (mAh/gV)'][binSel].std(axis=0)
+            dfO.loc[i, 'Cap Span'] = df['Cap Span'][binSel].mean(axis=0)
+            dfO.loc[i, 'Cap Span STD'] = df['Cap Span'][binSel].std(axis=0)
+            dfO.loc[i, 'Fit Error'] = df['Fit Error'][binSel].mean(axis=0)
+            dfO.loc[i, 'Fit Error STD'] = df['Fit Error'][binSel].std(axis=0)
+            dfOD.loc[i, 'Voltage STD'] = dfD['Voltage (V)'][binSel].std(axis=0)
+            dfOD.loc[i, 'SOC'] = dfD['SOC'][binSel].mean(axis=0)
+            dfOD.loc[i, 'SOC STD'] = dfD['SOC'][binSel].std(axis=0)
+            dfOD.loc[i, 'dqdV (mAh/gV)'] = dfD['dqdV (mAh/gV)'][binSel].mean(axis=0)
+            dfOD.loc[i, 'dqdV STD'] = dfD['dqdV (mAh/gV)'][binSel].std(axis=0)
+            dfOD.loc[i, 'Cap Span'] = dfD['Cap Span'][binSel].mean(axis=0)
+            dfOD.loc[i, 'Cap Span STD'] = dfD['Cap Span'][binSel].std(axis=0)
+            dfOD.loc[i, 'Fit Error'] = dfD['Fit Error'][binSel].mean(axis=0)
+            dfOD.loc[i, 'Fit Error STD'] = dfD['Fit Error'][binSel].std(axis=0)
+            dfOC.loc[i, 'Voltage STD'] = dfC['Voltage (V)'][binSel].std(axis=0)
+            dfOC.loc[i, 'SOC'] = dfC['SOC'][binSel].mean(axis=0)
+            dfOC.loc[i, 'SOC STD'] = dfC['SOC'][binSel].std(axis=0)
+            dfOC.loc[i, 'dqdV (mAh/gV)'] = dfC['dqdV (mAh/gV)'][binSel].mean(axis=0)
+            dfOC.loc[i, 'dqdV STD'] = dfC['dqdV (mAh/gV)'][binSel].std(axis=0)
+            dfOC.loc[i, 'Cap Span'] = dfC['Cap Span'][binSel].mean(axis=0)
+            dfOC.loc[i, 'Cap Span STD'] = dfC['Cap Span'][binSel].std(axis=0)
+            dfOC.loc[i, 'Fit Error'] = dfC['Fit Error'][binSel].mean(axis=0)
+            dfOC.loc[i, 'Fit Error STD'] = dfC['Fit Error'][binSel].std(axis=0)
+            
+            dfO = dfO[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+                       'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
+            dfOD = dfOD[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+                         'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
+            dfOC = dfOC[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+                         'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
+        
+        # Create new folder if necessary
+        if export_data or export_fig:
+            folder = Path(matpath) / matname
+            if folder.is_dir() is False:
+                folder.mkdir()
+        
+        # Create data files
+        if export_data:
+            filepath = folder / '{0} ({1}).xlsx'.format(matname, cellpathnames)
+            
+            writer = pd.ExcelWriter(filepath)
+            dfO.to_excel(writer, sheet_name = 'All', index=False)
+            dfOC.to_excel(writer, sheet_name = 'Discharge', index=False)
+            dfOD.to_excel(writer, sheet_name = 'Charge', index=False)
+            writer.save()
+            writer.close()
