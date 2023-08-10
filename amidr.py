@@ -21,15 +21,16 @@ import matplotlib.ticker as ticker
 import warnings
 warnings.filterwarnings(action='ignore')
 
-plt.rc('axes', grid = True, labelsize = 18)
+plt.rc('lines', markersize = 4, linewidth = 0.75)
+plt.rc('axes', grid = True, labelsize = 14)
 plt.rc('axes.grid', which = 'both')
 plt.rc('grid', color = 'grey')
 plt.rc('xtick.minor', bottom = True, top = False)
 plt.rc('ytick.minor', left = True, right = False)
-plt.rc('xtick', bottom = True, top = False, direction = 'out', labelsize = 16)
-plt.rc('ytick', left = True, right = False, direction = 'out', labelsize = 16)
-plt.rc('legend', frameon = False, fontsize = 12)
-plt.rc('errorbar', capsize = 4)
+plt.rc('xtick', bottom = True, top = False, direction = 'out', labelsize = 10)
+plt.rc('ytick', left = True, right = False, direction = 'out', labelsize = 10)
+plt.rc('legend', frameon = False, fontsize = 10, columnspacing = 1.0, handletextpad = 0.5, handlelength = 1.4)
+plt.rc('errorbar', capsize = 2)
 plt.rc('savefig', dpi = 300)
 
 RATES = np.array([0.01, 0.05, 0.1, 0.2, 1/3, 0.5, 1, 2, 2.5, 5, 10, 20, 40, 80,
@@ -137,6 +138,7 @@ class BIOCONVERT():
                 f.write(csvHeader)
             
             # Add data into form file
+            print("Formation data exporting to:\n" + str(pathFileForm))
             dfForm.to_csv(pathFileForm, mode='a', index=False)
             
             # Concatenate
@@ -318,6 +320,7 @@ class BIOCONVERT():
                 dfD['Capacity (Ah)'] = dfD['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
             
             # Add data into d file
+            print("Discharge data exporting to:\n" + str(pathFileD))
             dfD.to_csv(pathFileD, mode='a', index=False)
             
             # Add last time, and step number to graphs
@@ -503,6 +506,7 @@ class BIOCONVERT():
                 dfC['Capacity (Ah)'] = dfC['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
             
             # Add data into c file
+            print("Charge data exporting to:\n" + str(pathFileC))
             dfC.to_csv(pathFileC, mode='a', index=False)
             
             # Add last time, and step number to graphs
@@ -522,7 +526,7 @@ class BIOCONVERT():
         df.to_csv(pathFile, mode='a', index=False)
         
         # Generate complete graph
-        fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(10, 4), gridspec_kw={'wspace':0.0})
+        fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(6, 3), gridspec_kw={'wspace':0.0})
         
         if form_files:
             axs[0].plot(dfForm['Run Time (h)'], dfForm['Potential vs. Counter (V)'], 'k--', label = 'Formation vs. Counter')
@@ -573,7 +577,7 @@ class BIOCONVERT():
             dfDOCV = dfD[dfD['Step Type'] != 0].drop_duplicates(['Step Number'])
             dfCOCV = dfC[dfC['Step Type'] != 0].drop_duplicates(['Step Number'])
             
-            fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10, 4), gridspec_kw={'wspace':0.0})
+            fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(6, 3), gridspec_kw={'wspace':0.0})
             axs.plot(dfDOCV['Capacity (Ah)']*1000000/massVal, dfDOCV['Potential vs. Counter (V)'], 'r.-', label = 'Discharge OCV vs. Ref')
             axs.plot(dfCOCV['Capacity (Ah)']*1000000/massVal, dfCOCV['Potential vs. Counter (V)'], 'b.-', label = 'Charge OCV vs. Ref')
             axs.set_xlabel('Capacity (mAh/g)')
@@ -594,12 +598,16 @@ class BIOCONVERT():
 class AMIDR():
     
     def __init__(self, path, uhpc_file, single_pulse, export_data=True, use_input_cap=True, 
-                 fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False):
+                 fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False, parselabel=None):
         
         self.single_p = single_pulse
         self.capacitance_corr = capacitance_corr
         self.fcap_min = fcap_min
-        self.cell_label = uhpc_file.split('.')[0]
+        if parselabel is None:
+            self.cell_label = ('.').join(uhpc_file.split('.')[0:-1])
+        else:
+            self.cell_label = ('.').join(uhpc_file.split('.')[0:-1]) + '-' + parselabel
+        print(self.cell_label)
         self.dst = Path(path) / self.cell_label
         # If does not exist, create dir.
         if self.dst.is_dir() is False:
@@ -659,7 +667,7 @@ class AMIDR():
                
         print('Working on cell: {}'.format(self.cellname))
         print('Positive electrode active mass: {} g'.format(self.mass))
-        print('Input cell capacity: {} Ah'.format(self.input_cap))
+        print('Input cell capacity: {} Ah'.format(round(self.input_cap, 10)))
         
         self.df = pd.read_csv(self.uhpc_file, header=nskip)
         
@@ -712,9 +720,9 @@ class AMIDR():
             self.df['Label Potential'] = self.df['Potential'].copy()
         elif force2e:
             self.df['Potential'] = self.df['Label Potential'].copy()
-            print('3-electrode data detected. Ignoring working potential and using complete potential for everything. [NOT RECCOMMENDED]')
+            print('3-electrode data detected. Ignoring working potential and using complete cell potential for everything. [NOT RECCOMMENDED]')
         else:
-            print('3-electrode data detected. Using working potential for calculations and complete potential for graphs and labels.')
+            print('3-electrode data detected. Using working potential for calculations and complete cell potential for labelling.')
         
         #plt.plot(self.df['Capacity'], self.df['Potential'])
         
@@ -723,10 +731,11 @@ class AMIDR():
         self.sc_stepnums = self.sigdf['Prot_step'].unique()
         self.capacity = self.sigdf['Capacity'].max() - self.sigdf['Capacity'].min()
         self.spec_cap = self.capacity / self.mass
-        print('Specific Capacity achieved by signature curves: {0:.2f} mAh/g'.format(self.spec_cap*1000))
         if use_input_cap:
             self.capacity = self.input_cap
-        print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
+        else:
+            print('Specific Capacity achieved by signature curves: {0:.2f} mAh/g'.format(self.spec_cap*1000))
+            print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
         self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, self.currs, self.ir, \
         self.dqdv, self.resistdrop, self.icaps, self.avg_caps, self.ivolts, self.cvolts, \
@@ -813,14 +822,14 @@ class AMIDR():
     
     def plot_protocol(self, xlims=None, ylims=None, export_fig=True):
         fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True,
-                                figsize=(10, 4), gridspec_kw={'wspace':0.0})
+                                figsize=(6, 3), gridspec_kw={'wspace':0.0})
         axs[0].plot(self.df['Time'], self.df['Label Potential'], 'k-')
         axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[0].yaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[0].grid(which = 'minor', color = 'lightgrey')
         axs[0].set_xlabel('Time (h)')
         axs[0].set_ylabel('Voltage (V)')
-        axs[1].set_xlabel('Specific Capacity (mAh/g)')
+        axs[1].set_xlabel('Specific Capacity \n (mAh/g)')
         axs[1].tick_params(which = 'both', axis = 'y', length = 0)
         axs[1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[1].grid(which = 'minor', color = 'lightgrey')
@@ -886,7 +895,7 @@ class AMIDR():
         plt.close()
     
     def plot_caps(self, export_fig=True):
-        fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(5, 8), gridspec_kw={'hspace':0.0})
+        fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(3, 6), gridspec_kw={'hspace':0.0})
         colors = plt.get_cmap('viridis')(np.linspace(0,1,self.nvolts))
         
         for i in range(self.nvolts):
@@ -895,19 +904,20 @@ class AMIDR():
             axs[1].semilogx(self.eff_rates[i], self.fcaps[i],
                             color=colors[i], label=self.vlabels[i])
         
-        axs[0].xaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
-        axs[0].yaxis.set_minor_locator(ticker.AutoMinorLocator())
-        axs[0].grid(which = 'minor', color = 'lightgrey')
         if self.single_p:
             axs[1].set_xlabel('q$\mathregular{_{tot}}$/I (h)')
         else:
             axs[1].set_xlabel('n$\mathregular{_{eff}}$ in C/n$\mathregular{_{eff}}$')
         axs[1].set_ylabel('τ')
-        axs[0].set_ylabel('Specific Capacity (mAh/g)')
+        axs[0].set_ylabel('Specific Capacity \n (mAh/g)')
         axs[1].tick_params(axis = 'x', length = 0)
+        axs[0].xaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[0].xaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+        axs[0].yaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[0].grid(which = 'minor', color = 'lightgrey')
         axs[1].yaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[1].grid(which = 'minor', color = 'lightgrey')
-        plt.legend(bbox_to_anchor=(1.0, 1.0), loc='center left', ncol = 1 + self.nvolts//20)
+        plt.legend(bbox_to_anchor=(1.0, 1.0), loc='center left', ncol = 1 + self.nvolts//25)
         
         if export_fig:
             figname = self.dst / '{} Parsed.jpg'.format(self.cell_label)
@@ -1227,12 +1237,17 @@ class AMIDR():
         return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, icaps, avg_caps, ivolts, cvolts, avg_volts, dvolts, vlabels 
        
 
-    def fit_atlung(self, r, R_corr, tracer_inputs = [], micR_input = 4.9, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
-                   fcapadj_bounds=[1.0, 1.5], fcapadj_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, 
-                   shape='sphere', nalpha=4000, nQ=4000, export_data=True, export_fig=True, label=None):
+    def fit_atlung(self, r, R_corr, soc_inputs = [], micR_input = 4.9, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
+                   fcapadj_bounds=[1.0, 1.5], fcapadj_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, remove_out_of_bounds=True,
+                   shape='sphere', nalpha=4000, nQ=4000, export_data=True, export_fig=True, fitlabel=None):
 
         self.r = r
         self.R_corr = R_corr
+        
+        if fitlabel is None:
+            cell_label = self.cell_label
+        else:
+            cell_label = self.cell_label + '-' + fitlabel
         
         if shape not in SHAPES:
             print('The specified shape {0} is not supported.'.format(shape))
@@ -1269,6 +1284,7 @@ class AMIDR():
             print("Optimum Parameters: {}".format("Log(Dc) Log(Reff) Log(Reff/Dc)"))
                 
         dconst = np.zeros(self.nvolts, dtype=float)
+        dtconst = np.zeros(self.nvolts, dtype=float)
         resist_eff = np.zeros(self.nvolts, dtype=float)
         resist = np.zeros(self.nvolts, dtype=float)
         dqdv = np.zeros(self.nvolts, dtype=float)
@@ -1334,7 +1350,11 @@ class AMIDR():
                         if self.single_p is False:
                             print("{}: {}".format(self.vlabels[j], popt))
                         else:
-                            print("{}: {}".format(self.vlabels[j], np.array([popt[2] - popt[0], popt[2], popt[0]])))
+                            if remove_out_of_bounds and (round(popt[2], 5) == round(bounds[0][2], 5) or round(popt[2], 5) == round(bounds[1][2], 5)):
+                                print("{}: {}".format(self.vlabels[j], 'No fit within Reff bounds'))
+                                popt = np.array([float('NaN'), float('NaN'), float('NaN'), float('NaN')])
+                            else:
+                                print("{}: {}".format(self.vlabels[j], np.array([popt[0], popt[2], popt[3]])))
                     resist_eff[j] = 10**popt[2]
                     Q_arr = np.logspace(-6, 2, nQ)
                     tau_sol = np.zeros(nQ)
@@ -1353,7 +1373,7 @@ class AMIDR():
                            method='trf', max_nfev=5000, x_scale=[1e-11, 1.0],
                            ftol=ftol, xtol=None, gtol=None, loss='soft_l1', f_scale=1.0)
             
-            #plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
+            #(Q_arr, tau_sol, '-k', label='Atlung - {}'.format(shape))
             
             sigma[j] = np.sqrt(np.diag(pcov))[0]
             dconst[j] = 10**popt[0]
@@ -1375,35 +1395,37 @@ class AMIDR():
             else:
                 fit_err[j] = np.sqrt(np.average((error/cap_max[j])**2))
             
-            plt.semilogx(Qfit, tau_fit, 'or', markersize=4, label='{0}\n({1})'.format(self.cell_label, self.vlabels[j]))
+            plt.figure(figsize=(3, 3))
+            plt.semilogx(Qfit, tau_fit, 'or', markersize=2, label='Experimental')
             if max(tau_fit) < 0.01:
                 plt.ylim(0, 0.01)
             elif max(tau_fit) < 0.1:
                 plt.ylim(0, 0.1)
             else:
                 plt.ylim(0, 1)
-            plt.semilogx(Q_arr, tau_sol, '-k', label='Atlung ({})'.format(shape))
-            plt.xlabel('Q', fontsize = 16)
-            plt.ylabel('τ', fontsize = 16)
-            plt.legend(loc='upper left', frameon = True, fontsize = 10)
+            plt.semilogx(Q_arr, tau_sol, '-k', label='Model')
+            plt.xlabel('Q')
+            plt.ylabel('τ')
+            plt.legend(loc='upper left', frameon = True)
             if Qfit[0] < 1.0e-4 or Qfit[1] < 1.0e-3:
                 plt.xlim(1.0e-6, 1.0e0)
-                plt.xticks(10.**np.arange(-6, 1), fontsize = 12)
+                plt.xticks(10.**np.arange(-6, 1))
             else:
                 plt.xlim(1.0e-4, 1.0e2)
-                plt.xticks(10.**np.arange(-4, 3), fontsize = 12)
-            plt.yticks(fontsize = 12)
+                plt.xticks(10.**np.arange(-4, 3))
             plt.gca().xaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+            plt.gca().xaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             plt.gca().yaxis.set_minor_locator(ticker.AutoMinorLocator())
             plt.gca().grid(which = 'minor', color = 'lightgrey')
             if export_fig:
-                if label is None:
-                    figname = self.dst / '{0} {1:.3f} V ({2}).jpg'.format(self.cell_label, self.avg_volts[j], shape)
-                else:
-                    figname = self.dst / '{0}-{1} {2:.3f} V ({3}).jpg'.format(self.cell_label, label, self.avg_volts[j], shape)    
-                plt.savefig(figname, bbox_inches = 'tight')
+                figname = self.dst / '{0} {1:.3f} V ({2}).jpg'.format(cell_label, self.avg_volts[j], shape)
+                if not(np.isnan(popt[0])):
+                    plt.savefig(figname, bbox_inches = 'tight')
             
             plt.close()
+            
+        if export_fig:
+            print("Figures not shown saved to:\n" + str(self.dst))
     
         if R_corr is False:
             DV_df = pd.DataFrame(data={'Voltage': self.avg_volts, 'D': dconst})
@@ -1423,38 +1445,62 @@ class AMIDR():
                 else:
                     rdrop.append(self.resistdrop[i][0])
             
-            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'Dc (cm^2/s)': dconst, 'R_eff' : resist_eff, 'dqdV (mAh/gV)': [i*1000/self.mass for i in dqdv],
+            DV_df = pd.DataFrame(data={'Voltage (V)': self.avg_volts, 'Initial Voltage (V)': self.ivolts, 'Dc (cm^2/s)': dconst, 'R_eff' : resist_eff, 'dq/dV (mAh/gV)': [i*1000/self.mass for i in dqdv],
                                        'Rfit (Ohm)' : resist, 'micR (Ohmcm^2)' : A*resist*self.mass/(r*micR_input), 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
             
-            # Calculates Free-path Tracer D from inputs
-            if tracer_inputs:
-                theorcap = tracer_inputs[0]/1000*self.mass
-                initialcap = tracer_inputs[1]/1000*self.mass
-                temp = tracer_inputs[2]
+        # Calculates Free-path Tracer D from inputs
+        if soc_inputs:
+            temp = soc_inputs[0]
+            theorcap = soc_inputs[1]/1000*self.mass
+            
+            if soc_inputs[2] > max(self.ivolts) or soc_inputs[2] < min(self.ivolts) or soc_inputs[4] > max(self.ivolts) or soc_inputs[4] < min(self.ivolts):
+                print('Voltage inputs for calculating Free-path Tracer D are out of range. Tracer D will not be calculated.')
+            else:
+                volt1 = soc_inputs[2]
+                newcap1 = soc_inputs[3]/1000*self.mass
+                volt2 = soc_inputs[4]
+                newcap2 = soc_inputs[5]/1000*self.mass
+                volt1a = float('NaN')
+                volt1b = float('NaN')
+                volt2a = float('NaN')
+                volt2b = float('NaN')
+                
+                for i in range(len(self.ivolts) - 1):
+                    if volt1 > self.ivolts[i] and not(volt1a > self.ivolts[i]):
+                        volt1a = self.ivolts[i]
+                        cap1a = self.icaps[i]
+                    if volt1 < self.ivolts[i] and not(volt1b < self.ivolts[i]):
+                        volt1b = self.ivolts[i]
+                        cap1b = self.icaps[i]
+                    if volt2 > self.ivolts[i] and not(volt2a > self.ivolts[i]):
+                        volt2a = self.ivolts[i]
+                        cap2a = self.icaps[i]
+                    if volt2 < self.ivolts[i] and not(volt2b < self.ivolts[i]):
+                        volt2b = self.ivolts[i]
+                        cap2b = self.icaps[i]
+                
+                cap1 = cap1a + (volt1 - volt1a)/(volt1b - volt1a)*(cap1b - cap1a)
+                cap2 = cap2a + (volt2 - volt2a)/(volt2b - volt2a)*(cap2b - cap2a)
+                m = (newcap2 - newcap1)/(cap2 - cap1)
+                b = newcap1 - m*cap1
+                
                 kB = 1.380649E-23
                 e = 1.602176634E-19
-                pulsecaps = initialcap + self.avg_caps - self.icaps[0]
-                ipulsecaps = initialcap + self.icaps - self.icaps[0]
+                pulsecaps = m*self.avg_caps + b
+                ipulsecaps = m*self.icaps + b
                 socs = 1. - pulsecaps/theorcap
                 isocs = 1. - ipulsecaps/theorcap
                 dtconst = dconst*kB*temp*dqdv/(e*pulsecaps*(1. - pulsecaps/theorcap))
                 
-                DV_df['Dt* (cm^2/s)'] = dtconst
-                DV_df['SOC'] = socs
-                DV_df['Initial SOC'] = isocs
-                DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'SOC', 'Initial SOC', 'Dc (cm^2/s)', 'Dt* (cm^2/s)', 'R_eff', 'dqdV (mAh/gV)', 'Rfit (Ohm)', 'micR (Ohmcm^2)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error']]
-            else:
-                dtconst = []
-
-        if export_fig:
-            print("Figures not shown saved to :" + figname)
+                if R_corr:
+                    DV_df['Dt* (cm^2/s)'] = dtconst
+                    DV_df['SOC'] = socs
+                    DV_df['Initial SOC'] = isocs
+                    DV_df = DV_df[['Voltage (V)', 'Initial Voltage (V)', 'SOC', 'Initial SOC', 'Dc (cm^2/s)', 'Dt* (cm^2/s)', 'R_eff', 'dq/dV (mAh/gV)', 'Rfit (Ohm)', 'micR (Ohmcm^2)', 'Rdrop (Ohm)', 'Cap Span', 'Fit Error']]
 
         if export_data:
-            if label is None:
-                df_filename = self.dst / '{0} Fitted ({1}).xlsx'.format(self.cell_label, shape)
-            else:
-                df_filename = self.dst / '{0}-{1} Fitted ({2}).xlsx'.format(self.cell_label, label, shape)   
-            print("Fitted data exporting to:\n" + df_filename)
+            df_filename = self.dst / '{0} Fitted ({1}).xlsx'.format(cell_label, shape)
+            print("Fitted data exporting to:\n" + str(df_filename))
             DV_df.to_excel(df_filename, index=False)
         
         with np.printoptions(precision=3):
@@ -1463,9 +1509,9 @@ class AMIDR():
                 print('Standard deviations from fit: {}'.format(sigma))
                 print('Atlung fit error: {}'.format(fit_err))
         
-        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.R_corr, self.cell_label, self.mass, self.dst
+        return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.R_corr, cell_label, self.mass, self.dst
         
-    def make_summary_graph(self, fit_data, export_fig=True, label=None):
+    def make_summary_graph(self, fit_data, export_fig=True):
         
         voltage = fit_data[0]
         nvolts = len(voltage)
@@ -1491,176 +1537,178 @@ class AMIDR():
         
         if single_p is False:
             if R_corr is False:
-                fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(7, 15), sharex=True,
-                gridspec_kw={'height_ratios': [2,1,1,1,1], 'hspace': 0.0})
+                fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(6, 12), sharex=True,
+                gridspec_kw={'height_ratios': [1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
                 
-                axs[0].semilogy(voltage, dconst, 'ko--', label='{}'.format(cell_label))
-                #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[0].get_xaxis().set_ticks(voltage)
-                axs[0].tick_params(axis='x', which='minor', top=False, bottom=False)
+                axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
+                axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
                 axs[0].set_xlabel('Voltage (V)')
                 axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
-                axs[0].legend(fontsize=12)
+                axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[0].grid(which = 'minor', color = 'lightgrey')
+                if sum(dtconst) != 0:
+                    axs[0].legend(frameon = True)
                 
-                axs[1].plot(voltage, fit_err, 'ks--')
-                axs[1].set_ylim(0, np.amin([0.5, np.amax(fit_err)]))
-                #axs[1].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[1].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[1].get_xaxis().set_ticks(voltage)
-                axs[1].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[1].yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
-                #axs[1].set_ylabel('Average \n fractional \n fit error')
-                axs[1].set_ylabel('Weighted average \n absolute \n fit error')
+                axs[1].semilogy(voltage, fit_err, 'kx-')
+                axs[1].set_xlabel('Voltage (V)')
+                axs[1].set_ylabel('Fit Error')
+                axs[1].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[1].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[1].grid(which = 'minor', color = 'lightgrey')
                 
-                axs[2].plot(voltage, cap_span, 'k^--')
                 axs[2].set_ylim(0, 1.0)
-                #axs[2].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[2].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[2].get_xaxis().set_ticks(voltage)
-                axs[2].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[2].get_yaxis().set_ticks([0.25, 0.5, 0.75])
                 axs[2].set_xlabel('Voltage (V)')
-                axs[2].set_ylabel('Fitted fractional \n capacity span')
+                axs[2].set_ylabel('τ Span')
+                axs[2].yaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[2].grid(which = 'minor', color = 'lightgrey')
+                axs[2].set_axisbelow(True)
                 for j in range(nvolts):
                     axs[2].fill(np.array([voltage[j]-0.01, voltage[j]-0.01, voltage[j]+0.01, voltage[j]+0.01]),
                                 np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
-                                color='k', alpha=0.3, edgecolor='k', linestyle='-')
+                                color='grey', edgecolor='k', linestyle='-')
                 
                 for j in range(nvolts):
                     cap_in_step = caps[j]
                     ir = dV_ir[j]
-                    axs[3].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='k', alpha=0.15,
-                               edgecolor='k')
+                    axs[3].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='grey', alpha=0.5, edgecolor='k', linestyle='-')
                     for i in range(len(ir)):
-                        #width = 0.1/len(cap_in_step)
-                        #center = voltage[j] - 0.05 + (i+1/2)*width
                         width = dvolts[j]/len(cap_in_step)
                         center = voltage[j] - dvolts[j]/2 + (i+1/2)*width
-                        axs[3].bar(center, cap_in_step[i], width=width, color='k', alpha=0.3)
-                        axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3)
-                axs[3].set_ylabel('Specific Capacity \n in step (mAh/g)')
+                        axs[3].bar(center, cap_in_step[i], width=width, color='grey', alpha=0.5, edgecolor='k', linestyle='-')
+                        axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3, edgecolor='k', linestyle='-')
+                axs[3].get_xaxis().set_ticks(voltage)
                 axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
-                #axs[3].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[4].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
+                axs[3].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
+                axs[3].set_xlabel('Voltage (V)')
+                axs[3].set_ylabel('Capacity \n (mAh/g)')
+                axs[3].yaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[3].grid(which = 'minor', color = 'lightgrey')
+                axs[3].set_axisbelow(True)
+                
                 axs[4].get_xaxis().set_ticks(voltage)
                 axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[4].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                 axs[4].set_xlabel('Voltage (V)')
                 axs[4].set_ylabel('Fractional \n IR drop')
+                axs[4].set_axisbelow(True)
                 
             else:
-                fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(7, 15), sharex=True,
-                gridspec_kw={'height_ratios': [2,1,1,1,1,1], 'hspace': 0.0})
-                fig.suptitle('{}'.format(cell_label))
-            
-                axs[0].semilogy(voltage, dconst, 'k+-', label='Chemical D')
-                axs[0].semilogy(voltage, dtconst, 'kx-', label='Free-path Tracer D')
-                #axs[0].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[0].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[0].get_xaxis().set_ticks(voltage)
-                axs[0].tick_params(axis='x', which='minor', top=False, bottom=False)
+                fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
+                gridspec_kw={'height_ratios': [1,1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
+                
+                axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
+                axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
                 axs[0].set_xlabel('Voltage (V)')
                 axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
-                axs[0].legend(fontsize=12)
+                axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[0].grid(which = 'minor', color = 'lightgrey')
+                if sum(dtconst) != 0:
+                    axs[0].legend(frameon = True)
                 
-                axs[1].semilogy(voltage, resist_eff, 'ko-')
-                axs[1].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k:', linewidth=1.5)
-                axs[1].set_ylim(1.0e-5, 1.0)
-                axs[1].set_xlabel('Voltage (V)')
-                axs[1].set_ylabel('R$\mathregular{_{eff}}$')
-                
-                axs[2].semilogy(voltage, resist, 'ko-', label='fit R')
+                axs[1].semilogy(voltage, resist, 'kx-', label='Fit R')
                 rdavg = []
                 rddev = []
                 for i in range(nvolts):
                     rdavg.append(np.average(resistdrop[i]))
                     rddev.append(np.std(resistdrop[i]))
-                axs[2].errorbar(voltage, rdavg, rddev, fmt='k^-', capsize = 3.0, label='Vdrop R')
-                axs[2].xscale = 'log'
-                axs[2].set_ylim(1.0e1, 0.99e5)
+                axs[1].errorbar(voltage, rdavg, rddev, fmt='k.:', capsize = 3.0, label='V Drop R')
+                axs[1].set_xlabel('Voltage (V)')
+                axs[1].set_ylabel('R (Ω)')
+                axs[1].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[1].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[1].grid(which = 'minor', color = 'lightgrey')
+                axs[1].legend(frameon = True)
+                
+                axs[2].semilogy(voltage, resist_eff, 'kx-')
+                axs[2].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k--', linewidth=1, label = 'Equivalent Limitation')
+                axs[2].set_ylim(2.0e-3, 0.8)
                 axs[2].set_xlabel('Voltage (V)')
-                axs[2].set_ylabel('R (Ω)')
-                axs[2].legend(fontsize=12)
+                axs[2].set_ylabel('R$\mathregular{_{eff}}$')
+                axs[2].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[2].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[2].grid(which = 'minor', color = 'lightgrey')
+                axs[2].legend(frameon = True)
                 
-                axs[3].plot(voltage, fit_err, 'ko-')
-                axs[3].set_ylim(0, np.amin([0.5, np.amax(fit_err)]))
-                #axs[1].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[1].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[3].get_xaxis().set_ticks(voltage)
-                axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
-                axs[3].yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
-                #axs[1].set_ylabel('Average \n fractional \n fit error')
-                axs[3].set_ylabel('Fit error')
+                axs[3].semilogy(voltage, fit_err, 'kx-')
+                axs[3].set_xlabel('Voltage (V)')
+                axs[3].set_ylabel('Fit Error')
+                axs[3].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+                axs[3].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+                axs[3].grid(which = 'minor', color = 'lightgrey')
                 
-                axs[4].plot(voltage, cap_span, 'ko-')
                 axs[4].set_ylim(0, 1.0)
-                #axs[2].tick_params(direction='in', which='both', top=True, right=True, labelsize=12)
-                #axs[2].xaxis.set_minor_locator(MultipleLocator(0.1))
-                axs[4].get_xaxis().set_ticks(voltage)
-                axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[4].get_yaxis().set_ticks([0.25, 0.5, 0.75])
                 axs[4].set_xlabel('Voltage (V)')
-                axs[4].set_ylabel('Fitted fractional \n capacity span')
+                axs[4].set_ylabel('τ Span')
+                axs[4].yaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[4].grid(which = 'minor', color = 'lightgrey')
+                axs[4].set_axisbelow(True)
                 for j in range(nvolts):
                     axs[4].fill(np.array([voltage[j]-0.01, voltage[j]-0.01, voltage[j]+0.01, voltage[j]+0.01]),
                                 np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
-                                color='k', alpha=0.3, edgecolor='k', linestyle='-')
+                                color='grey', edgecolor='k', linestyle='-')
                 
                 for j in range(nvolts):
                     cap_in_step = caps[j]
                     ir = dV_ir[j]
-                    axs[5].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='k', alpha=0.15,
-                               edgecolor='k')
+                    axs[5].bar(voltage[j], np.sum(cap_in_step), width=dvolts[j], color='grey', alpha=0.5, edgecolor='k', linestyle='-')
                     for i in range(len(ir)):
-                        #width = 0.1/len(cap_in_step)
-                        #center = voltage[j] - 0.05 + (i+1/2)*width
                         width = dvolts[j]/len(cap_in_step)
                         center = voltage[j] - dvolts[j]/2 + (i+1/2)*width
-                        axs[5].bar(center, cap_in_step[i], width=width, color='k', alpha=0.3)
-                        #axs[4].bar(voltage[j], ir[i]/dvolts[j], width=0.04, color='k', alpha=0.3)
+                        axs[5].bar(center, cap_in_step[i], width=width, color='grey', alpha=0.5, edgecolor='k', linestyle='-')
                 axs[5].get_xaxis().set_ticks(voltage)
                 axs[5].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[5].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                 axs[5].set_xlabel('Voltage (V)')
-                axs[5].set_ylabel('Specific Capacity \n in step (mAh/g)')
-                
+                axs[5].set_ylabel('Capacity \n (mAh/g)')
+                axs[5].yaxis.set_minor_locator(ticker.AutoMinorLocator())
+                axs[5].grid(which = 'minor', color = 'lightgrey')
+                axs[5].set_axisbelow(True)
+
         else:
-            fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(10, 12), sharex=True,
+            fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
             gridspec_kw={'height_ratios': [1,1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
-            #fig.suptitle('{}'.format(cell_label), fontsize = 18)
             
-            axs[0].semilogy(voltage, dconst, 'kx-', label='Chemical D')
-            axs[0].semilogy(voltage, dtconst, 'k+:', label='Free-path Tracer D')
+            axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
+            axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
             axs[0].set_xlabel('Voltage (V)')
             axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
             axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
             axs[0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+            axs[0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             axs[0].grid(which = 'minor', color = 'lightgrey')
-            axs[0].legend(frameon = True)
+            if sum(dtconst) != 0:
+                axs[0].legend(frameon = True)
             
-            axs[1].semilogy(ivoltage, resist, 'kx-', label='fit R')
-            axs[1].semilogy(ivoltage, resistdrop, 'k+:', label='Vdrop R')
-            axs[1].set_ylim(bottom=2.0e1)
+            axs[1].semilogy(ivoltage, resist, 'kx-', label='Fit R')
+            axs[1].semilogy(ivoltage, resistdrop, 'k.:', label='V Drop R')
             axs[1].set_xlabel('Voltage (V)')
             axs[1].set_ylabel('R (Ω)')
             axs[1].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+            axs[1].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             axs[1].grid(which = 'minor', color = 'lightgrey')
             axs[1].legend(frameon = True)
             
-            axs[2].semilogy(voltage, resist_eff, 'k+-')
-            axs[2].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k--', linewidth=1.5)
+            axs[2].semilogy(voltage, resist_eff, 'kx-')
+            axs[2].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k--', linewidth=1.0, label = 'Equivalent Limitation')
             axs[2].set_ylim(2.0e-3, 0.8)
             axs[2].set_xlabel('Voltage (V)')
             axs[2].set_ylabel('R$\mathregular{_{eff}}$')
             axs[2].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+            axs[2].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             axs[2].grid(which = 'minor', color = 'lightgrey')
+            axs[2].legend(frameon = True)
             
-            axs[3].semilogy(voltage, fit_err, 'k+-')
-            #axs[2].set_ylim()
+            axs[3].semilogy(voltage, fit_err, 'kx-')
             axs[3].set_xlabel('Voltage (V)')
             axs[3].set_ylabel('Fit Error')
             axs[3].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+            axs[3].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             axs[3].grid(which = 'minor', color = 'lightgrey')
             
             axs[4].set_ylim(0, 1.0)
@@ -1673,19 +1721,16 @@ class AMIDR():
             for j in range(nvolts):
                 axs[4].fill(np.array([voltage[j]-dvolts[j]/2, voltage[j]-dvolts[j]/2, voltage[j]+dvolts[j]/2, voltage[j]+dvolts[j]/2]),
                             np.array([cap_min[j], cap_max[j], cap_max[j], cap_min[j]]),
-                            color='grey', alpha=0.75, edgecolor='k', linestyle='-')
+                            color='grey', edgecolor='k', linestyle='-')
             
-            axs[5].plot(voltage, [i*1000/mass for i in dqdv], 'k+-')
+            axs[5].plot(voltage, [i*1000/mass for i in dqdv], 'kx-')
             axs[5].set_xlabel('Voltage (V)')
             axs[5].set_ylabel('dq/dV \n (mAh/gV)')
             axs[5].yaxis.set_minor_locator(ticker.AutoMinorLocator())
             axs[5].grid(which = 'minor', color = 'lightgrey')
     
         if export_fig:
-            if label is None:
-                figname = dst / '{0} Summary.jpg'.format(cell_label)
-            else:
-                figname = dst / '{0}-{1} Summary.jpg'.format(cell_label, label)
+            figname = dst / '{0} Summary.jpg'.format(cell_label)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -1751,11 +1796,11 @@ class AMIDR():
         
 class BINAVERAGE():
     
-    def __init__(self, cellpaths, matpath, matname, binsize = 0.025, maxdqdVchange = 2, mincapspan = 0.5, export_data=True, export_fig=True):
+    def __init__(self, path, cells, matname, binsize = 0.025, mincapspan = 0.5, maxdqdVchange = 2, export_data=True, export_fig=True):
         
         # Create new folder if necessary
         if export_data or export_fig:
-            folder = Path(matpath) / matname
+            folder = Path(path) / matname
             if folder.is_dir() is False:
                 folder.mkdir()
         
@@ -1765,95 +1810,128 @@ class BINAVERAGE():
         dfC = pd.DataFrame({})
         
         # Generate plot for individual cells
-        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(10, 8), sharex='col', sharey='row',
+        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
+                
+        # Find and read file data into dataframes
+        for cell in cells:
+            cellpath = Path(path) / cell
+            for halfcyclepath in sorted(cellpath.iterdir(), reverse=True):
+                if halfcyclepath.is_dir():
+                    for fitfile in halfcyclepath.iterdir():
+                        if fitfile.is_file() and "harge Fitted" in str(fitfile):
+                            if "Discharge" in str(fitfile):
+                                print("Found discharge data for cell {}".format(Path(cellpath).name))
+                                halfcycle = 'Discharge'
+                            elif "Charge" in str(fitfile):
+                                print("Found charge data for cell {}".format(Path(cellpath).name))
+                                halfcycle = 'Charge'
+                            else:
+                                print("Found mislabeled fit file. Fit files should designate whether they contain charge or discharge data")
+                                halfcycle = ''
+                            dfnew = pd.read_excel(fitfile)
+                            
+                            # Remove datapoints where 
+                            # dq/dV change between subsequent datapoint is greater than the max dqdV factor or
+                            # the capacity span is less the minimum capacity span.
+                            baddqdv = ~(((dfnew/dfnew.set_index(dfnew.index + 1))['dq/dV (mAh/gV)'] < maxdqdVchange) & \
+                                        ((dfnew/dfnew.set_index(dfnew.index + 1))['dq/dV (mAh/gV)'] > 0) & \
+                                        ((dfnew/dfnew.set_index(dfnew.index - 1))['dq/dV (mAh/gV)'] < maxdqdVchange) & \
+                                        ((dfnew/dfnew.set_index(dfnew.index - 1))['dq/dV (mAh/gV)'] > 0) & \
+                                        ((dfnew.set_index(dfnew.index + 1)/dfnew)['dq/dV (mAh/gV)'] < maxdqdVchange) & \
+                                        ((dfnew.set_index(dfnew.index + 1)/dfnew)['dq/dV (mAh/gV)'] > 0) & \
+                                        ((dfnew.set_index(dfnew.index - 1)/dfnew)['dq/dV (mAh/gV)'] < maxdqdVchange) & \
+                                        ((dfnew.set_index(dfnew.index - 1)/dfnew)['dq/dV (mAh/gV)'] > 0))[1:-1]
+                            badcapspan = dfnew['Cap Span'] < mincapspan
+                            keep = ~(baddqdv|badcapspan)
+                            
+                            # Save good fits
+                            df = pd.concat([df, dfnew[keep]], ignore_index = True)
+                            if halfcycle == 'Discharge':
+                                dfD = pd.concat([dfD, dfnew[keep]], ignore_index = True)
+                                markerA = 'rx-'
+                                markerB = 'r.:'
+                                color = 'lightcoral'
+                            elif halfcycle == 'Charge':
+                                dfC = pd.concat([dfC, dfnew[keep]], ignore_index = True)
+                                markerA = 'bx-'
+                                markerB = 'b.:'
+                                color = 'cornflowerblue'
+                            else:
+                                markerA = 'kx-'
+                                markerB = 'k.:'
+                                color = 'grey'
+                            
+                            # Plot individual cells with outliers removed
+                            axs[0, 0].semilogy(dfnew[keep]['Voltage (V)'], dfnew[keep]['Dc (cm^2/s)'], markerA, markersize = 3)
+                            axs[0, 0].semilogy(dfnew[keep]['Voltage (V)'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 3)                            
+                            axs[0, 1].semilogy(dfnew[keep]['SOC'], dfnew[keep]['Dc (cm^2/s)'], markerA, markersize = 3)
+                            axs[0, 1].semilogy(dfnew[keep]['SOC'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 3)
+                            axs[1, 0].semilogy(dfnew[keep]['Initial Voltage (V)'], dfnew[keep]['micR (Ohmcm^2)'], markerA, markersize = 3)
+                            axs[1, 1].semilogy(dfnew[keep]['Initial SOC'], dfnew[keep]['micR (Ohmcm^2)'], markerA, markersize = 3)
+                            
+                            # Plot individual cell outliers (dqdv)
+                            axs[0, 0].semilogy(dfnew[baddqdv]['Voltage (V)'], dfnew[baddqdv]['Dc (cm^2/s)'], marker = '4', color = color, linestyle = 'None', markersize = 3)
+                            #axs[0, 0].semilogy(dfnew[baddqdv]['Voltage (V)'], dfnew[baddqdv]['Dt* (cm^2/s)'], marker = '4', color = color, linestyle = 'None', markersize = 3)                            
+                            axs[0, 1].semilogy(dfnew[baddqdv]['SOC'], dfnew[baddqdv]['Dc (cm^2/s)'], marker = '4', color = color, linestyle = 'None', markersize = 3)
+                            #axs[0, 1].semilogy(dfnew[baddqdv]['SOC'], dfnew[baddqdv]['Dt* (cm^2/s)'], marker = '4', color = color, linestyle = 'None', markersize = 3)
+                            axs[1, 0].semilogy(dfnew[baddqdv]['Initial Voltage (V)'], dfnew[baddqdv]['micR (Ohmcm^2)'], marker = '4', color = color, linestyle = 'None', markersize = 3)
+                            axs[1, 1].semilogy(dfnew[baddqdv]['Initial SOC'], dfnew[baddqdv]['micR (Ohmcm^2)'], marker = '4', color = color, linestyle = 'None', markersize = 3)
         
-        axs[0, 0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
+                            # Plot individual cell outliers (capspan)
+                            axs[0, 0].semilogy(dfnew[badcapspan]['Voltage (V)'], dfnew[badcapspan]['Dc (cm^2/s)'], marker = '3', color = color, linestyle = 'None', markersize = 3)
+                            #axs[0, 0].semilogy(dfnew[badcapspan]['Voltage (V)'], dfnew[badcapspan]['Dt* (cm^2/s)'], marker = '3', color = color, linestyle = 'None', markersize = 3)                            
+                            axs[0, 1].semilogy(dfnew[badcapspan]['SOC'], dfnew[badcapspan]['Dc (cm^2/s)'], marker = '3', color = color, linestyle = 'None', markersize = 3)
+                            #axs[0, 1].semilogy(dfnew[badcapspan]['SOC'], dfnew[badcapspan]['Dt* (cm^2/s)'], marker = '3', color = color, linestyle = 'None', markersize = 3)
+                            axs[1, 0].semilogy(dfnew[badcapspan]['Initial Voltage (V)'], dfnew[badcapspan]['micR (Ohmcm^2)'], marker = '3', color = color, linestyle = 'None', markersize = 3)
+                            axs[1, 1].semilogy(dfnew[badcapspan]['Initial SOC'], dfnew[badcapspan]['micR (Ohmcm^2)'], marker = '3', color = color, linestyle = 'None', markersize = 3)
+                            
+                            # Create data files
+                            if export_data:
+                                filepath = folder / '{0} {1} {2} Filtered.xlsx'.format(cell, matname, halfcycle)
+                                
+                                print("Filtered data exporting to:\n" + str(filepath))
+                                
+                                writer = pd.ExcelWriter(filepath)
+                                dfnew.to_excel(writer, index=False)
+                                writer.save()
+                                writer.close()
+        
+        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
         axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
-        axs[1, 1].set_xlabel('Li Saturation')
+        axs[1, 1].set_xlabel('Ion Saturation')
+        
+        axs[0, 0].semilogy([], [], 'rx-', label='Dch D$\mathregular{_{c}}$')
+        axs[0, 0].semilogy([], [], 'bx-', label='Ch D$\mathregular{_{c}}$')
+        axs[0, 0].semilogy([], [], 'r.:', label='Dch D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].semilogy([], [], 'b.:', label='Ch D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].legend(frameon = True, ncol = 2)
+        
+        axs[0, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max Δdq/dV (D$\mathregular{_{c}}$)')
+        axs[0, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min τ Span (D$\mathregular{_{c}}$)')
+        axs[0, 1].legend(frameon = True)
+        axs[0, 1].invert_xaxis()
+        
+        axs[1, 0].semilogy([], [], 'rx-', label='Dch')
+        axs[1, 0].semilogy([], [], 'bx-', label='Ch')
+        axs[1, 0].legend(frameon = True)
+        
+        axs[1, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max Δdq/dV')
+        axs[1, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min τ Span')
+        axs[1, 1].legend(frameon = True)
         
         axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[0, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
         axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
         axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[1, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
         
         axs[0, 0].grid(which = 'minor', color = 'lightgrey')
         axs[1, 0].grid(which = 'minor', color = 'lightgrey')
         axs[0, 1].grid(which = 'minor', color = 'lightgrey')
         axs[1, 1].grid(which = 'minor', color = 'lightgrey')
-        
-        axs[0, 1].semilogy([], [], 'rx-', label='Dch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'bx-', label='Ch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'r+:', label='Dch D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].semilogy([], [], 'b+:', label='Ch D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].legend(frameon = True, ncol = 2)
-        
-        axs[1, 1].semilogy([], [], 'rx-', label='Dch')
-        axs[1, 1].semilogy([], [], 'bx-', label='Ch')
-        axs[1, 1].legend(frameon = True)
-                
-        # Find and read file data into dataframes
-        cellpathnames =''
-        for cellpath in cellpaths:
-            if cellpathnames == '':
-                cellpathnames = Path(cellpath).name
-            else:
-                cellpathnames = cellpathnames + ', ' + Path(cellpath).name
-            for path in sorted(Path(cellpath).iterdir(), reverse=True):
-                if path.is_dir() and "Discharge" in str(path):
-                    for file in path.iterdir():
-                        if file.is_file() and "Discharge Fitted" in str(file):
-                            print("Found discharge data for cell {}".format(Path(cellpath).name))
-                            
-                            dfDnew = pd.read_excel(file)
-                            
-                            # Remove datapoints where 
-                            # dq/dV change between subsequent datapoint is greater than the max dqdV factor or
-                            # the capacity span is less the minimum capacity span.
-                            keepSel = (((dfDnew/dfDnew.set_index(dfDnew.index + 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfDnew/dfDnew.set_index(dfDnew.index - 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfDnew.set_index(dfDnew.index + 1)/dfDnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfDnew.set_index(dfDnew.index - 1)/dfDnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                        (dfDnew['Cap Span'] > mincapspan))[1:-1]
-                                
-                            df = pd.concat([df, dfDnew[keepSel]], ignore_index = True)
-                            dfD = pd.concat([dfD, dfDnew[keepSel]], ignore_index = True)
-                            
-                            # Plot individual cells with outliers removed
-                            axs[0, 0].semilogy(dfDnew[keepSel]['Voltage (V)'], dfDnew[keepSel]['Dc (cm^2/s)'], 'rx-')
-                            axs[0, 0].semilogy(dfDnew[keepSel]['Voltage (V)'], dfDnew[keepSel]['Dt* (cm^2/s)'], 'r+:')                            
-                            axs[0, 1].semilogy(dfDnew[keepSel]['SOC'], dfDnew[keepSel]['Dc (cm^2/s)'], 'rx-')
-                            axs[0, 1].semilogy(dfDnew[keepSel]['SOC'], dfDnew[keepSel]['Dt* (cm^2/s)'], 'r+:')
-                            axs[1, 0].semilogy(dfDnew[keepSel]['Initial Voltage (V)'], dfDnew[keepSel]['micR (Ohmcm^2)'], 'rx-')
-                            axs[1, 1].semilogy(dfDnew[keepSel]['Initial SOC'], dfDnew[keepSel]['micR (Ohmcm^2)'], 'rx-')
-                            
-                if path.is_dir() and "Charge" in str(path):
-                    for file in path.iterdir():
-                        if file.is_file() and "Charge Fitted" in str(file):
-                            print("Found charge data for cell {}".format(Path(cellpath).name))
-                            
-                            dfCnew = pd.read_excel(file)
-                            
-                            # Remove datapoints where 
-                            # dq/dV change between subsequent datapoint is greater than the max dqdV factor
-                            # or the capacity span is less the minimum capacity span.
-                            keepSel = (((dfCnew/dfCnew.set_index(dfCnew.index + 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfCnew/dfCnew.set_index(dfCnew.index - 1))['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfCnew.set_index(dfCnew.index + 1)/dfCnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                       ((dfCnew.set_index(dfCnew.index - 1)/dfCnew)['dqdV (mAh/gV)'] < maxdqdVchange) & \
-                                        (dfCnew['Cap Span'] > mincapspan))[1:-1]
-                            
-                            df = pd.concat([df, dfCnew[keepSel]], ignore_index = True)
-                            dfC = pd.concat([dfC, dfCnew[keepSel]], ignore_index = True)
-                            
-                            # Plot individual cells with outliers removed
-                            axs[0, 0].semilogy(dfCnew[keepSel]['Voltage (V)'], dfCnew[keepSel]['Dc (cm^2/s)'], 'bx-')
-                            axs[0, 0].semilogy(dfCnew[keepSel]['Voltage (V)'], dfCnew[keepSel]['Dt* (cm^2/s)'], 'b+:')
-                            axs[0, 1].semilogy(dfCnew[keepSel]['SOC'], dfCnew[keepSel]['Dc (cm^2/s)'], 'bx-')
-                            axs[0, 1].semilogy(dfCnew[keepSel]['SOC'], dfCnew[keepSel]['Dt* (cm^2/s)'], 'b+:')
-                            axs[1, 0].semilogy(dfCnew[keepSel]['Initial Voltage (V)'], dfCnew[keepSel]['micR (Ohmcm^2)'], 'bx-')
-                            axs[1, 1].semilogy(dfCnew[keepSel]['Initial SOC'], dfCnew[keepSel]['micR (Ohmcm^2)'], 'bx-')
         
         if export_fig:
             figname = folder / '{0} Individual Cells.jpg'.format(matname)
@@ -1926,8 +2004,8 @@ class BINAVERAGE():
             dfO.loc[i, 'Voltage STD'] = df['Voltage (V)'][binSel|ibinSel].std(axis=0)
             dfO.loc[i, 'SOC'] = df['SOC'][binSel|ibinSel].mean(axis=0)
             dfO.loc[i, 'SOC STD'] = df['SOC'][binSel|ibinSel].std(axis=0)
-            dfO.loc[i, 'dqdV (mAh/gV)'] = df['dqdV (mAh/gV)'][binSel].mean(axis=0)
-            dfO.loc[i, 'dqdV STD'] = df['dqdV (mAh/gV)'][binSel].std(axis=0)
+            dfO.loc[i, 'dq/dV (mAh/gV)'] = df['dq/dV (mAh/gV)'][binSel].mean(axis=0)
+            dfO.loc[i, 'dq/dV STD'] = df['dq/dV (mAh/gV)'][binSel].std(axis=0)
             dfO.loc[i, 'Cap Span'] = df['Cap Span'][binSel].mean(axis=0)
             dfO.loc[i, 'Cap Span STD'] = df['Cap Span'][binSel].std(axis=0)
             dfO.loc[i, 'Fit Error'] = df['Fit Error'][binSel].mean(axis=0)
@@ -1935,8 +2013,8 @@ class BINAVERAGE():
             dfOD.loc[i, 'Voltage STD'] = dfD['Voltage (V)'][binSelD|ibinSelD].std(axis=0)
             dfOD.loc[i, 'SOC'] = dfD['SOC'][binSelD|ibinSelD].mean(axis=0)
             dfOD.loc[i, 'SOC STD'] = dfD['SOC'][binSelD|ibinSelD].std(axis=0)
-            dfOD.loc[i, 'dqdV (mAh/gV)'] = dfD['dqdV (mAh/gV)'][binSelD].mean(axis=0)
-            dfOD.loc[i, 'dqdV STD'] = dfD['dqdV (mAh/gV)'][binSelD].std(axis=0)
+            dfOD.loc[i, 'dq/dV (mAh/gV)'] = dfD['dq/dV (mAh/gV)'][binSelD].mean(axis=0)
+            dfOD.loc[i, 'dq/dV STD'] = dfD['dq/dV (mAh/gV)'][binSelD].std(axis=0)
             dfOD.loc[i, 'Cap Span'] = dfD['Cap Span'][binSelD].mean(axis=0)
             dfOD.loc[i, 'Cap Span STD'] = dfD['Cap Span'][binSelD].std(axis=0)
             dfOD.loc[i, 'Fit Error'] = dfD['Fit Error'][binSelD].mean(axis=0)
@@ -1944,41 +2022,26 @@ class BINAVERAGE():
             dfOC.loc[i, 'Voltage STD'] = dfC['Voltage (V)'][binSelC|ibinSelC].std(axis=0)
             dfOC.loc[i, 'SOC'] = dfC['SOC'][binSelC|ibinSelC].mean(axis=0)
             dfOC.loc[i, 'SOC STD'] = dfC['SOC'][binSelC|ibinSelC].std(axis=0)
-            dfOC.loc[i, 'dqdV (mAh/gV)'] = dfC['dqdV (mAh/gV)'][binSelC].mean(axis=0)
-            dfOC.loc[i, 'dqdV STD'] = dfC['dqdV (mAh/gV)'][binSelC].std(axis=0)
+            dfOC.loc[i, 'dq/dV (mAh/gV)'] = dfC['dq/dV (mAh/gV)'][binSelC].mean(axis=0)
+            dfOC.loc[i, 'dq/dV STD'] = dfC['dq/dV (mAh/gV)'][binSelC].std(axis=0)
             dfOC.loc[i, 'Cap Span'] = dfC['Cap Span'][binSelC].mean(axis=0)
             dfOC.loc[i, 'Cap Span STD'] = dfC['Cap Span'][binSelC].std(axis=0)
             dfOC.loc[i, 'Fit Error'] = dfC['Fit Error'][binSelC].mean(axis=0)
             dfOC.loc[i, 'Fit Error STD'] = dfC['Fit Error'][binSelC].std(axis=0)
             
         # Plot bin averaged charge and discharge
-        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(10, 8), sharex='col', sharey='row',
+        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
-        axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
-        axs[1, 1].set_xlabel('Li Saturation')
+        axs[0, 0].semilogy([], [], 'r-', label='Dch D$\mathregular{_{c}}$')
+        axs[0, 0].semilogy([], [], 'b-', label='Ch D$\mathregular{_{c}}$')
+        axs[0, 0].semilogy([], [], 'r:', label='Dch D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].semilogy([], [], 'b:', label='Ch D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].legend(frameon = True, ncol = 2)
         
-        axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
-        axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
-        axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
-        axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
-        
-        axs[0, 0].grid(which = 'minor', color = 'lightgrey')
-        axs[1, 0].grid(which = 'minor', color = 'lightgrey')
-        axs[0, 1].grid(which = 'minor', color = 'lightgrey')
-        axs[1, 1].grid(which = 'minor', color = 'lightgrey')
-        
-        axs[0, 1].semilogy([], [], 'r-', label='Dch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'b-', label='Ch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'r:', label='Dch D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].semilogy([], [], 'b:', label='Ch D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].legend(frameon = True, ncol = 2)
-        
-        axs[1, 1].semilogy([], [], 'r-', label='Dch')
-        axs[1, 1].semilogy([], [], 'b-', label='Ch')
-        axs[1, 1].legend(frameon = True)
+        axs[1, 0].semilogy([], [], 'r-', label='Dch')
+        axs[1, 0].semilogy([], [], 'b-', label='Ch')
+        axs[1, 0].legend(frameon = True)
         
         yerrDDc = [dfOD['Dc (cm^2/s)']*(1 - 1/dfOD['Dc geoSTD']), dfOD['Dc (cm^2/s)']*(dfOD['Dc geoSTD'] - 1)]
         yerrDDt = [dfOD['Dt* (cm^2/s)']*(1 - 1/dfOD['Dt* geoSTD']), dfOD['Dt* (cm^2/s)']*(dfOD['Dt* geoSTD'] - 1)]
@@ -2000,8 +2063,27 @@ class BINAVERAGE():
         axs[1, 0].errorbar(dfOC['Voltage (V)'], dfOC['micR (Ohmcm^2)'], xerr = dfOC['Voltage STD'], yerr = yerrCmicR, fmt = 'b-', elinewidth = 1)
         axs[1, 1].errorbar(dfOC['SOC'], dfOC['micR (Ohmcm^2)'], xerr = dfOC['SOC STD'], yerr = yerrCmicR, fmt = 'b-', elinewidth = 1)
         
+        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[1, 0].set_xlabel('Voltage (V)')
+        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 1].set_xlabel('Ion Saturation')
+        
+        axs[0, 1].invert_xaxis()
+        
+        axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[0, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+        axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[1, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+        
+        axs[0, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[0, 1].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 1].grid(which = 'minor', color = 'lightgrey')
+        
         if export_fig:
-            figname = folder / '{0} Bin Averaged Ch vs Dch.jpg'.format(matname)
+            figname = folder / '{0} Ch vs Dch.jpg'.format(matname)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -2009,29 +2091,14 @@ class BINAVERAGE():
         plt.close()
         
         # Plot bin averaged all
-        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(10, 8), sharex='col', sharey='row',
+        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
-        axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
-        axs[1, 1].set_xlabel('Li Saturation')
+        axs[0, 0].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
+        axs[0, 0].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].legend(frameon = True, ncol = 2)
         
-        axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
-        axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
-        axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
-        axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
-        
-        axs[0, 0].grid(which = 'minor', color = 'lightgrey')
-        axs[1, 0].grid(which = 'minor', color = 'lightgrey')
-        axs[0, 1].grid(which = 'minor', color = 'lightgrey')
-        axs[1, 1].grid(which = 'minor', color = 'lightgrey')
-        
-        axs[0, 1].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].legend(frameon = True, ncol = 2)
-        
-        axs[1, 1].semilogy([], [], 'k-')
+        axs[1, 0].semilogy([], [], 'k-')
         
         yerrDc = [dfO['Dc (cm^2/s)']*(1 - 1/dfO['Dc geoSTD']), dfO['Dc (cm^2/s)']*(dfO['Dc geoSTD'] - 1)]
         yerrDt = [dfO['Dt* (cm^2/s)']*(1 - 1/dfO['Dt* geoSTD']), dfO['Dt* (cm^2/s)']*(dfO['Dt* geoSTD'] - 1)]
@@ -2043,8 +2110,27 @@ class BINAVERAGE():
         axs[1, 0].errorbar(dfO['Voltage (V)'], dfO['micR (Ohmcm^2)'], xerr = dfO['Voltage STD'], yerr = yerrmicR, fmt = 'k-', elinewidth = 1)
         axs[1, 1].errorbar(dfO['SOC'], dfO['micR (Ohmcm^2)'], xerr = dfO['SOC STD'], yerr = yerrmicR, fmt = 'k-', elinewidth = 1)
         
+        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[1, 0].set_xlabel('Voltage (V)')
+        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 1].set_xlabel('Ion Saturation')
+        
+        axs[0, 1].invert_xaxis()
+        
+        axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[0, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+        axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[1, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+
+        axs[0, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[0, 1].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 1].grid(which = 'minor', color = 'lightgrey')   
+        
         if export_fig:
-            figname = folder / '{0} Bin Averaged All.jpg'.format(matname)
+            figname = folder / '{0} All.jpg'.format(matname)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -2053,16 +2139,16 @@ class BINAVERAGE():
         
         # Create data files
         if export_data:
-            dfO = dfO[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+            dfO = dfO[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dq/dV (mAh/gV)', 'dq/dV STD', \
                    'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
-            dfOD = dfOD[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+            dfOD = dfOD[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dq/dV (mAh/gV)', 'dq/dV STD', \
                      'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
-            dfOC = dfOC[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dqdV (mAh/gV)', 'dqdV STD', \
+            dfOC = dfOC[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dq/dV (mAh/gV)', 'dq/dV STD', \
                      'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
             
-            filepath = folder / '{0} ({1}).xlsx'.format(matname, cellpathnames)
+            filepath = folder / '{0} ({1}).xlsx'.format(matname, ', '.join(cells))
             
-            print("Bin averaged data exporting to:\n" + filepath)
+            print("Bin averaged data exporting to:\n" + str(filepath))
             
             writer = pd.ExcelWriter(filepath)
             dfO.to_excel(writer, sheet_name = 'All', index=False)
