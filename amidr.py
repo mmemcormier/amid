@@ -43,8 +43,8 @@ SHAPES = ['sphere', 'plane']
 
 class BIOCONVERT():
     
-    def __init__(self, path, form_files, d_files, c_files, cellname, export_fig=True):
-        
+    def __init__(self, path, form_files, d_files, c_files, cellname, export_data=True, export_fig=True):
+                
         # Acquire header info from first file
         all_files = []
         all_files.extend(form_files)
@@ -132,14 +132,14 @@ class BIOCONVERT():
                                    'Ns':'Step Number'}, 
                           inplace=True)
             
-            # Add header info into form file
-            pathFileForm = Path(path) / (cellname + ' Form.csv')
-            with open(pathFileForm, 'w') as f:
-                f.write(csvHeader)
-            
-            # Add data into form file
-            print("Formation data exporting to:\n" + str(pathFileForm))
-            dfForm.to_csv(pathFileForm, mode='a', index=False)
+            # Generate form file
+            if export_data:
+                pathFileForm = Path(path) / (cellname + ' Form.csv')
+                with open(pathFileForm, 'w') as f:
+                    f.write(csvHeader)
+                
+                print("Formation data exporting to:\n" + str(pathFileForm))
+                dfForm.to_csv(pathFileForm, mode='a', index=False)
             
             # Concatenate
             df = pd.concat([df, dfForm])
@@ -309,20 +309,20 @@ class BIOCONVERT():
                                 '(Q-Qo)/mA.h':'Capacity (Ah)', 
                                 'Ns':'Step Number'}, 
                        inplace=True)
-                
-            # Add header info into d file
-            pathFileD = Path(path) / (cellname + ' Discharge.csv')
-            with open(pathFileD, 'w') as f:
-                f.write(csvHeader)
-            
+
             # Add last capacity to output file
             if not(df.empty):
                 dfD['Capacity (Ah)'] = dfD['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
-            
-            # Add data into d file
-            print("Discharge data exporting to:\n" + str(pathFileD))
-            dfD.to_csv(pathFileD, mode='a', index=False)
-            
+                
+            # Generate D File
+            if export_data:
+                pathFileD = Path(path) / (cellname + ' Discharge.csv')
+                with open(pathFileD, 'w') as f:
+                    f.write(csvHeader)      
+                    
+                print("Discharge data exporting to:\n" + str(pathFileD))
+                dfD.to_csv(pathFileD, mode='a', index=False)
+                
             # Add last time, and step number to graphs
             if not(df.empty):
                 dfD['Run Time (h)'] = dfD['Run Time (h)'] + df['Run Time (h)'].iat[-1]
@@ -468,11 +468,6 @@ class BIOCONVERT():
                 dfTempC['Ns'].replace(newCSteps['Ns'].values, newCSteps.index+1, inplace = True)
                 dfTempCSteps['Ns'].replace(newCSteps['Ns'].values, newCSteps.index+1, inplace = True)
                 
-                # Prints dataset after all transformations [Default Commented Out]
-                #print(dfTempC)
-                #print(dfTempC.loc[9500:13570])
-                #print(dfTempCSteps[0:50], dfTempCSteps[50:100], dfTempCSteps[100:150])
-                
                 # Add last previous capacity, time, and step number to current data
                 if not(dfC.empty):
                     dfTempC['time/s'] = dfTempC['time/s'] + dfC['time/s'].iat[-1]
@@ -495,19 +490,19 @@ class BIOCONVERT():
                                 '(Q-Qo)/mA.h':'Capacity (Ah)', 
                                 'Ns':'Step Number'}, 
                        inplace=True)
-                
-            # Add header info into c file
-            pathFileC = Path(path) / (cellname + ' Charge.csv')
-            with open(pathFileC, 'w') as f:
-                f.write(csvHeader)
             
             # Add last capacity to output file
             if not(df.empty):
                 dfC['Capacity (Ah)'] = dfC['Capacity (Ah)'] + df['Capacity (Ah)'].iat[-1]
-            
-            # Add data into c file
-            print("Charge data exporting to:\n" + str(pathFileC))
-            dfC.to_csv(pathFileC, mode='a', index=False)
+    
+            # Generate C file
+            if export_data:
+                pathFileC = Path(path) / (cellname + ' Charge.csv')
+                with open(pathFileC, 'w') as f:
+                    f.write(csvHeader)
+                            
+                print("Charge data exporting to:\n" + str(pathFileC))
+                dfC.to_csv(pathFileC, mode='a', index=False)
             
             # Add last time, and step number to graphs
             if not(df.empty):
@@ -517,13 +512,13 @@ class BIOCONVERT():
             # Concatenate
             df = pd.concat([df, dfC])
         
-        # Add Header info into complete file
-        pathFile = Path(path) / (cellname + ' All.csv')
-        with open(pathFile, 'w') as f:
-            f.write(csvHeader)
-            
-        # Add data into complete file
-        df.to_csv(pathFile, mode='a', index=False)
+        # Generate full file
+        if export_data:
+            pathFile = Path(path) / (cellname + ' All.csv')
+            with open(pathFile, 'w') as f:
+                f.write(csvHeader)
+                
+            df.to_csv(pathFile, mode='a', index=False)
         
         # Generate complete graph
         fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True, figsize=(6, 3), gridspec_kw={'wspace':0.0})
@@ -597,8 +592,10 @@ class BIOCONVERT():
         
 class AMIDR():
     
-    def __init__(self, path, uhpc_file, single_pulse, export_data=True, use_input_cap=True, 
+    def __init__(self, path, uhpc_file, single_pulse, export_data=True, export_fig=None, use_input_cap=True, 
                  fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False, parselabel=None):
+        
+        if not(export_fig is None): ('There is no figure to export. Feel free to neglect this argument.')
         
         self.single_p = single_pulse
         self.capacitance_corr = capacitance_corr
@@ -610,7 +607,7 @@ class AMIDR():
         print(self.cell_label)
         self.dst = Path(path) / self.cell_label
         # If does not exist, create dir.
-        if self.dst.is_dir() is False:
+        if self.dst.is_dir() is False and export_data is True:
             self.dst.mkdir()
             print('Create directory: {}'.format(self.dst))
         self.src = Path(path)
@@ -820,7 +817,10 @@ class AMIDR():
         
         return sigdf
     
-    def plot_protocol(self, xlims=None, ylims=None, export_fig=True):
+    def plot_protocol(self, xlims=None, ylims=None, export_data=None, export_fig=True):
+        
+        if not(export_data is None): ('There is no data to export. Feel free to neglect this argument.')
+
         fig, axs = plt.subplots(nrows=1, ncols=2, sharey=True,
                                 figsize=(6, 3), gridspec_kw={'wspace':0.0})
         axs[0].plot(self.df['Time'], self.df['Label Potential'], 'k-')
@@ -894,7 +894,10 @@ class AMIDR():
         plt.show()
         plt.close()
     
-    def plot_caps(self, export_fig=True):
+    def plot_caps(self, export_data=None, export_fig=True):
+        
+        if not(export_data is None): ('There is no data to export. Feel free to neglect this argument.')
+        
         fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(3, 6), gridspec_kw={'hspace':0.0})
         colors = plt.get_cmap('viridis')(np.linspace(0,1,self.nvolts))
         
@@ -1511,7 +1514,9 @@ class AMIDR():
         
         return self.avg_volts, self.ivolts, dconst, dtconst, fit_err, cap_span, cap_max, cap_min, self.caps, self.ir, self.dvolts, resist_eff, dqdv, resist, self.resistdrop, self.single_p, self.R_corr, cell_label, self.mass, self.dst
         
-    def make_summary_graph(self, fit_data, export_fig=True):
+    def make_summary_graph(self, fit_data, export_data=None, export_fig=True):
+        
+        if not(export_data is None): ('There is no figure to export. Feel free to neglect this argument.')
         
         voltage = fit_data[0]
         nvolts = len(voltage)
@@ -1796,11 +1801,19 @@ class AMIDR():
         
 class BINAVERAGE():
     
-    def __init__(self, path, cells, matname, binsize = 0.025, mincapspan = 0.5, maxdqdVchange = 2, export_data=True, export_fig=True):
+    def __init__(self, path, cells, matname, binsize = 0.025, mincapspan = 0.5, maxdqdVchange = 2, export_data=True, export_fig=True, parselabel=None, fitlabel=None):
         
         # Create new folder if necessary
+        if parselabel == None:
+            plabel = ''
+        else:
+            plabel = '-' + parselabel
+        if fitlabel == None:
+            flabel = ''
+        else:
+            flabel = '-' + fitlabel
         if export_data or export_fig:
-            folder = Path(path) / matname
+            folder = Path(path) / (matname + plabel + flabel)
             if folder.is_dir() is False:
                 folder.mkdir()
         
@@ -1819,7 +1832,7 @@ class BINAVERAGE():
             for halfcyclepath in sorted(cellpath.iterdir(), reverse=True):
                 if halfcyclepath.is_dir():
                     for fitfile in halfcyclepath.iterdir():
-                        if fitfile.is_file() and "harge Fitted" in str(fitfile):
+                        if fitfile.is_file() and "harge" + plabel + flabel + " Fitted" in str(fitfile):
                             if "Discharge" in str(fitfile):
                                 print("Found discharge data for cell {}".format(Path(cellpath).name))
                                 halfcycle = 'Discharge'
@@ -1864,9 +1877,9 @@ class BINAVERAGE():
                             
                             # Plot individual cells with outliers removed
                             axs[0, 0].semilogy(dfnew[keep]['Voltage (V)'], dfnew[keep]['Dc (cm^2/s)'], markerA, markersize = 3)
-                            axs[0, 0].semilogy(dfnew[keep]['Voltage (V)'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 3)                            
+                            axs[0, 0].semilogy(dfnew[keep]['Voltage (V)'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 1.5)                            
                             axs[0, 1].semilogy(dfnew[keep]['SOC'], dfnew[keep]['Dc (cm^2/s)'], markerA, markersize = 3)
-                            axs[0, 1].semilogy(dfnew[keep]['SOC'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 3)
+                            axs[0, 1].semilogy(dfnew[keep]['SOC'], dfnew[keep]['Dt* (cm^2/s)'], markerB, markersize = 1.5)
                             axs[1, 0].semilogy(dfnew[keep]['Initial Voltage (V)'], dfnew[keep]['micR (Ohmcm^2)'], markerA, markersize = 3)
                             axs[1, 1].semilogy(dfnew[keep]['Initial SOC'], dfnew[keep]['micR (Ohmcm^2)'], markerA, markersize = 3)
                             
@@ -1888,7 +1901,7 @@ class BINAVERAGE():
                             
                             # Create data files
                             if export_data:
-                                filepath = folder / '{0} {1} {2} Filtered.xlsx'.format(cell, matname, halfcycle)
+                                filepath = folder / '{0} {1} {2}{3}{4} Filtered.xlsx'.format(cell, matname, halfcycle, plabel, flabel)
                                 
                                 print("Filtered data exporting to:\n" + str(filepath))
                                 
@@ -1934,7 +1947,7 @@ class BINAVERAGE():
         axs[1, 1].grid(which = 'minor', color = 'lightgrey')
         
         if export_fig:
-            figname = folder / '{0} Individual Cells.jpg'.format(matname)
+            figname = folder / '{0}{1}{2} Individual Cells.jpg'.format(matname, plabel, flabel)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -2033,35 +2046,35 @@ class BINAVERAGE():
         fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 0].semilogy([], [], 'r-', label='Dch D$\mathregular{_{c}}$')
-        axs[0, 0].semilogy([], [], 'b-', label='Ch D$\mathregular{_{c}}$')
-        axs[0, 0].semilogy([], [], 'r:', label='Dch D$\mathregular{_{t}^{*}}$')
-        axs[0, 0].semilogy([], [], 'b:', label='Ch D$\mathregular{_{t}^{*}}$')
-        axs[0, 0].legend(frameon = True, ncol = 2)
+        axs[0, 1].semilogy([], [], 'r-', label='Dch D$\mathregular{_{c}}$')
+        axs[0, 1].semilogy([], [], 'b-', label='Ch D$\mathregular{_{c}}$')
+        axs[0, 1].semilogy([], [], 'r:', label='Dch D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].semilogy([], [], 'b:', label='Ch D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].legend(frameon = True, ncol = 2)
         
-        axs[1, 0].semilogy([], [], 'r-', label='Dch')
-        axs[1, 0].semilogy([], [], 'b-', label='Ch')
-        axs[1, 0].legend(frameon = True)
+        axs[1, 1].semilogy([], [], 'r-', label='Dch')
+        axs[1, 1].semilogy([], [], 'b-', label='Ch')
+        axs[1, 1].legend(frameon = True)
         
         yerrDDc = [dfOD['Dc (cm^2/s)']*(1 - 1/dfOD['Dc geoSTD']), dfOD['Dc (cm^2/s)']*(dfOD['Dc geoSTD'] - 1)]
         yerrDDt = [dfOD['Dt* (cm^2/s)']*(1 - 1/dfOD['Dt* geoSTD']), dfOD['Dt* (cm^2/s)']*(dfOD['Dt* geoSTD'] - 1)]
-        axs[0, 0].errorbar(dfOD['Voltage (V)'], dfOD['Dc (cm^2/s)'], xerr = dfOD['Voltage STD'], yerr = yerrDDc, fmt = 'r-', elinewidth = 1)
-        axs[0, 0].errorbar(dfOD['Voltage (V)'], dfOD['Dt* (cm^2/s)'], xerr = dfOD['Voltage STD'], yerr = yerrDDt, fmt = 'r:', elinewidth = 1)
-        axs[0, 1].errorbar(dfOD['SOC'], dfOD['Dc (cm^2/s)'], xerr = dfOD['SOC STD'], yerr = yerrDDc, fmt = 'r-', elinewidth = 1)
-        axs[0, 1].errorbar(dfOD['SOC'], dfOD['Dt* (cm^2/s)'], xerr = dfOD['SOC STD'], yerr = yerrDDt, fmt = 'r:', elinewidth = 1)
+        axs[0, 0].errorbar(dfOD['Voltage (V)'], dfOD['Dc (cm^2/s)'], yerr = yerrDDc, fmt = 'r-')
+        axs[0, 0].errorbar(dfOD['Voltage (V)'], dfOD['Dt* (cm^2/s)'], yerr = yerrDDt, fmt = 'r:', elinewidth = 0.5, markeredgewidth = 0.5)
+        axs[0, 1].errorbar(dfOD['SOC'], dfOD['Dc (cm^2/s)'], yerr = yerrDDc, fmt = 'r-')
+        axs[0, 1].errorbar(dfOD['SOC'], dfOD['Dt* (cm^2/s)'], yerr = yerrDDt, fmt = 'r:', elinewidth = 0.5, markeredgewidth = 0.5)
         yerrDmicR = [dfOD['micR (Ohmcm^2)']*(1 - 1/dfOD['micR geoSTD']), dfOD['micR (Ohmcm^2)']*(dfOD['micR geoSTD'] - 1)]
-        axs[1, 0].errorbar(dfOD['Voltage (V)'], dfOD['micR (Ohmcm^2)'], xerr = dfOD['Voltage STD'], yerr = yerrDmicR, fmt = 'r-', elinewidth = 1)
-        axs[1, 1].errorbar(dfOD['SOC'], dfOD['micR (Ohmcm^2)'], xerr = dfOD['SOC STD'], yerr = yerrDmicR, fmt = 'r-', elinewidth = 1)
+        axs[1, 0].errorbar(dfOD['Voltage (V)'], dfOD['micR (Ohmcm^2)'], yerr = yerrDmicR, fmt = 'r-')
+        axs[1, 1].errorbar(dfOD['SOC'], dfOD['micR (Ohmcm^2)'], yerr = yerrDmicR, fmt = 'r-')
         
         yerrCDc = [dfOC['Dc (cm^2/s)']*(1 - 1/dfOC['Dc geoSTD']), dfOC['Dc (cm^2/s)']*(dfOC['Dc geoSTD'] - 1)]
         yerrCDt = [dfOC['Dt* (cm^2/s)']*(1 - 1/dfOC['Dt* geoSTD']), dfOC['Dt* (cm^2/s)']*(dfOC['Dt* geoSTD'] - 1)]
-        axs[0, 0].errorbar(dfOC['Voltage (V)'], dfOC['Dc (cm^2/s)'], xerr = dfOC['Voltage STD'], yerr = yerrCDc, fmt = 'b-', elinewidth = 1)
-        axs[0, 0].errorbar(dfOC['Voltage (V)'], dfOC['Dt* (cm^2/s)'], xerr = dfOC['Voltage STD'], yerr = yerrCDt, fmt = 'b:', elinewidth = 1)
-        axs[0, 1].errorbar(dfOC['SOC'], dfOC['Dc (cm^2/s)'], xerr = dfOC['SOC STD'], yerr = yerrCDc, fmt = 'b-', elinewidth = 1)
-        axs[0, 1].errorbar(dfOC['SOC'], dfOC['Dt* (cm^2/s)'], xerr = dfOC['SOC STD'], yerr = yerrCDt, fmt = 'b:', elinewidth = 1)
+        axs[0, 0].errorbar(dfOC['Voltage (V)'], dfOC['Dc (cm^2/s)'], yerr = yerrCDc, fmt = 'b-')
+        axs[0, 0].errorbar(dfOC['Voltage (V)'], dfOC['Dt* (cm^2/s)'], yerr = yerrCDt, fmt = 'b:', elinewidth = 0.5, markeredgewidth = 0.5)
+        axs[0, 1].errorbar(dfOC['SOC'], dfOC['Dc (cm^2/s)'], yerr = yerrCDc, fmt = 'b-')
+        axs[0, 1].errorbar(dfOC['SOC'], dfOC['Dt* (cm^2/s)'], yerr = yerrCDt, fmt = 'b:', elinewidth = 0.5, markeredgewidth = 0.5)
         yerrCmicR = [dfOC['micR (Ohmcm^2)']*(1 - 1/dfOC['micR geoSTD']), dfOC['micR (Ohmcm^2)']*(dfOC['micR geoSTD'] - 1)]
-        axs[1, 0].errorbar(dfOC['Voltage (V)'], dfOC['micR (Ohmcm^2)'], xerr = dfOC['Voltage STD'], yerr = yerrCmicR, fmt = 'b-', elinewidth = 1)
-        axs[1, 1].errorbar(dfOC['SOC'], dfOC['micR (Ohmcm^2)'], xerr = dfOC['SOC STD'], yerr = yerrCmicR, fmt = 'b-', elinewidth = 1)
+        axs[1, 0].errorbar(dfOC['Voltage (V)'], dfOC['micR (Ohmcm^2)'],  yerr = yerrCmicR, fmt = 'b-')
+        axs[1, 1].errorbar(dfOC['SOC'], dfOC['micR (Ohmcm^2)'], yerr = yerrCmicR, fmt = 'b-')
         
         axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
@@ -2083,7 +2096,7 @@ class BINAVERAGE():
         axs[1, 1].grid(which = 'minor', color = 'lightgrey')
         
         if export_fig:
-            figname = folder / '{0} Ch vs Dch.jpg'.format(matname)
+            figname = folder / '{0}{1}{2} Ch vs Dch.jpg'.format(matname, plabel, flabel)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -2094,21 +2107,21 @@ class BINAVERAGE():
         fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 0].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
-        axs[0, 0].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
-        axs[0, 0].legend(frameon = True, ncol = 2)
+        axs[0, 1].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
+        axs[0, 1].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].legend(frameon = True, ncol = 2)
         
-        axs[1, 0].semilogy([], [], 'k-')
+        axs[1, 0].semilogy([], [])
         
         yerrDc = [dfO['Dc (cm^2/s)']*(1 - 1/dfO['Dc geoSTD']), dfO['Dc (cm^2/s)']*(dfO['Dc geoSTD'] - 1)]
         yerrDt = [dfO['Dt* (cm^2/s)']*(1 - 1/dfO['Dt* geoSTD']), dfO['Dt* (cm^2/s)']*(dfO['Dt* geoSTD'] - 1)]
-        axs[0, 0].errorbar(dfO['Voltage (V)'], dfO['Dc (cm^2/s)'], xerr = dfO['Voltage STD'], yerr = yerrDc, fmt = 'k-', elinewidth = 1)
-        axs[0, 0].errorbar(dfO['Voltage (V)'], dfO['Dt* (cm^2/s)'], xerr = dfO['Voltage STD'], yerr = yerrDt, fmt = 'k:', elinewidth = 1)
-        axs[0, 1].errorbar(dfO['SOC'], dfO['Dc (cm^2/s)'], xerr = dfO['SOC STD'], yerr = yerrDc, fmt = 'k-', elinewidth = 1)
-        axs[0, 1].errorbar(dfO['SOC'], dfO['Dt* (cm^2/s)'], xerr = dfO['SOC STD'], yerr = yerrDt, fmt = 'k:', elinewidth = 1)
+        axs[0, 0].errorbar(dfO['Voltage (V)'], dfO['Dc (cm^2/s)'], yerr = yerrDc, fmt = 'k-')
+        axs[0, 0].errorbar(dfO['Voltage (V)'], dfO['Dt* (cm^2/s)'], yerr = yerrDt, fmt = 'k:', elinewidth = 0.5, markeredgewidth = 0.5)
+        axs[0, 1].errorbar(dfO['SOC'], dfO['Dc (cm^2/s)'], yerr = yerrDc, fmt = 'k-')
+        axs[0, 1].errorbar(dfO['SOC'], dfO['Dt* (cm^2/s)'], yerr = yerrDt, fmt = 'k:', elinewidth = 0.5, markeredgewidth = 0.5)
         yerrmicR = [dfO['micR (Ohmcm^2)']*(1 - 1/dfO['micR geoSTD']), dfO['micR (Ohmcm^2)']*(dfO['micR geoSTD'] - 1)]
-        axs[1, 0].errorbar(dfO['Voltage (V)'], dfO['micR (Ohmcm^2)'], xerr = dfO['Voltage STD'], yerr = yerrmicR, fmt = 'k-', elinewidth = 1)
-        axs[1, 1].errorbar(dfO['SOC'], dfO['micR (Ohmcm^2)'], xerr = dfO['SOC STD'], yerr = yerrmicR, fmt = 'k-', elinewidth = 1)
+        axs[1, 0].errorbar(dfO['Voltage (V)'], dfO['micR (Ohmcm^2)'], yerr = yerrmicR, fmt = 'k-')
+        axs[1, 1].errorbar(dfO['SOC'], dfO['micR (Ohmcm^2)'], yerr = yerrmicR, fmt = 'k-')
         
         axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
@@ -2130,7 +2143,7 @@ class BINAVERAGE():
         axs[1, 1].grid(which = 'minor', color = 'lightgrey')   
         
         if export_fig:
-            figname = folder / '{0} All.jpg'.format(matname)
+            figname = folder / '{0}{1}{2} All.jpg'.format(matname, plabel, flabel)
             print(figname)
             plt.savefig(figname, bbox_inches = 'tight')
             
@@ -2146,7 +2159,7 @@ class BINAVERAGE():
             dfOC = dfOC[['Voltage (V)', 'Voltage STD', 'SOC', 'SOC STD', 'Dc (cm^2/s)', 'Dc geoSTD', 'Dt* (cm^2/s)', 'Dt* geoSTD', 'dq/dV (mAh/gV)', 'dq/dV STD', \
                      'Rfit (Ohm)', 'Rfit geoSTD', 'micR (Ohmcm^2)', 'micR geoSTD', 'Rdrop (Ohm)', 'Rdrop geoSTD', 'Cap Span', 'Cap Span STD', 'Fit Error', 'Fit Error STD']]
             
-            filepath = folder / '{0} ({1}).xlsx'.format(matname, ', '.join(cells))
+            filepath = folder / '{0}{1}{2} ({3}).xlsx'.format(matname, plabel, flabel, ', '.join(cells))
             
             print("Bin averaged data exporting to:\n" + str(filepath))
             
@@ -2156,3 +2169,79 @@ class BINAVERAGE():
             dfOC.to_excel(writer, sheet_name = 'Charge', index=False)
             writer.save()
             writer.close()
+            
+class MATCOMPARE():
+    
+    def __init__(self, path, mats, export_data=None, export_fig=True):
+        
+        if not(export_data is None): ('There is no figure to export. Feel free to neglect this argument.')
+        
+        if len(mats) > 4:
+            print('Can only compare up to 4 materials at once. Additional materials will not be plotted.')  
+        
+        folder = Path(path)
+        
+        # Generate plot for individual cells
+        fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
+        gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
+                
+        axs[0, 1].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
+        axs[0, 1].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].legend(frameon = True, ncol = 2)
+        
+        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[1, 0].set_xlabel('Voltage (V)')
+        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 1].set_xlabel('Ion Saturation')
+        
+        axs[0, 1].invert_xaxis()
+        
+        axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[0, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[0, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+        axs[0, 1].xaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axs[1, 0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
+        axs[1, 0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
+
+        axs[0, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 0].grid(which = 'minor', color = 'lightgrey')
+        axs[0, 1].grid(which = 'minor', color = 'lightgrey')
+        axs[1, 1].grid(which = 'minor', color = 'lightgrey') 
+        
+        colors = ['r', 'g', 'b', 'k']
+        
+        # Find and read file data into dataframes
+        i = 0
+        for mat in mats:
+            matpath = folder / mat
+            for filepath in matpath.iterdir():
+                if mat + ' (' in str(filepath):
+                    if i > 3:
+                        break
+                    
+                    print("Found data for material: {}".format(filepath))
+                    df = pd.read_excel(filepath, sheet_name = 'All')
+                    
+                    # Plot dataframe
+                    yerrDc = [df['Dc (cm^2/s)']*(1 - 1/df['Dc geoSTD']), df['Dc (cm^2/s)']*(df['Dc geoSTD'] - 1)]
+                    yerrDt = [df['Dt* (cm^2/s)']*(1 - 1/df['Dt* geoSTD']), df['Dt* (cm^2/s)']*(df['Dt* geoSTD'] - 1)]
+                    axs[0, 0].errorbar(df['Voltage (V)'], df['Dc (cm^2/s)'], yerr = yerrDc, fmt = '-', color = colors[i])
+                    axs[0, 0].errorbar(df['Voltage (V)'], df['Dt* (cm^2/s)'], yerr = yerrDt, fmt = ':', color = colors[i], elinewidth = 0.5, markeredgewidth = 0.5)
+                    axs[0, 1].errorbar(df['SOC'], df['Dc (cm^2/s)'], yerr = yerrDc, fmt = '-', color = colors[i])
+                    axs[0, 1].errorbar(df['SOC'], df['Dt* (cm^2/s)'], yerr = yerrDt, fmt = ':', color = colors[i], elinewidth = 0.5, markeredgewidth = 0.5)
+                    yerrmicR = [df['micR (Ohmcm^2)']*(1 - 1/df['micR geoSTD']), df['micR (Ohmcm^2)']*(df['micR geoSTD'] - 1)]
+                    axs[1, 0].errorbar(df['Voltage (V)'], df['micR (Ohmcm^2)'], yerr = yerrmicR, color = colors[i], fmt = '-')
+                    axs[1, 1].errorbar(df['SOC'], df['micR (Ohmcm^2)'], yerr = yerrmicR, fmt = '-', color = colors[i])
+                    axs[1, 1].semilogy([], [], color = colors[i], label = mat)
+                    
+                    i = i + 1
+                    
+        axs[1, 1].legend(frameon = True)            
+        
+        if export_fig:
+            figname = folder / 'Material Comparison ({0}).jpg'.format(', '.join(mats))
+            print(figname)
+            plt.savefig(figname, bbox_inches = 'tight')
+            
+        plt.show()
+        plt.close()
