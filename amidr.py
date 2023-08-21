@@ -593,7 +593,7 @@ class BIOCONVERT():
 class AMIDR():
     
     def __init__(self, path, uhpc_file, single_pulse, export_data=True, export_fig=None, use_input_cap=True, 
-                 fcap_min=0.0, capacitance_corr=False, spliced=False, force2e=False, parselabel=None):
+                 capacitance_corr=False, fcap_min=0.0, spliced=False, force2e=False, parselabel=None):
         
         if not(export_fig is None): ('There is no figure to export. Feel free to neglect this argument.')
         
@@ -734,20 +734,26 @@ class AMIDR():
             print('Specific Capacity achieved by signature curves: {0:.2f} mAh/g'.format(self.spec_cap*1000))
             print('Using {:.8f} Ah to compute rates.'.format(self.capacity))
 
-        self.caps, self.scaps, self.fcaps, self.rates, self.eff_rates, self.currs, self.ir, \
-        self.dqdv, self.resistdrop, self.icaps, self.avg_caps, self.ivolts, self.cvolts, \
+        self.caps, self.cumcaps, self.volts, self.fcaps, self.rates, self.eff_rates, self.currs, \
+        self.ir, self.dqdv, self.resistdrop, self.icaps, self.avg_caps, self.ivolts, self.cvolts, \
         self.avg_volts, self.dvolts, self.vlabels = self._parse_sigcurves()
         
         self.nvolts = len(self.caps)
-                    
+        
         if export_data:
             caprate_fname = self.dst / '{0} Parsed.xlsx'.format(self.cell_label)
             writer = pd.ExcelWriter(caprate_fname)
             for i in range(self.nvolts):
-                caprate_df = pd.DataFrame(data={'specific_capacity': self.scaps[i],
-                                                'fractional_capacity': self.fcaps[i],
-                                                'effective_rate': self.eff_rates[i],
-                                                'C-rates': self.rates[i]})
+                if self.single_p is False:
+                    caprate_df = pd.DataFrame(data={'Specific Capacity': self.cumcaps[i],
+                                                    'Fractional Capacity': self.fcaps[i],
+                                                    'Effective C/n Rate': self.eff_rates[i],
+                                                    'C/n Rate': self.rates[i]})
+                else:
+                    caprate_df = pd.DataFrame(data={'Specific Capacity': self.caps[i],
+                                                    'Voltage': self.volts[i],
+                                                    'Fractional Capacity': self.fcaps[i],
+                                                    'qi/I': self.eff_rates[i]})
                 caprate_df.to_excel(writer, sheet_name=self.vlabels[i], index=False)
             print("Parsed data exporting to:\n" + str(caprate_fname))
             writer.save()
@@ -902,16 +908,16 @@ class AMIDR():
         colors = plt.get_cmap('viridis')(np.linspace(0,1,self.nvolts))
         
         for i in range(self.nvolts):
-            axs[0].semilogx(self.eff_rates[i], self.scaps[i],
+            axs[0].semilogx(self.eff_rates[i], self.cumcaps[i],
                             color=colors[i])
             axs[1].semilogx(self.eff_rates[i], self.fcaps[i],
                             color=colors[i], label=self.vlabels[i])
         
         if self.single_p:
-            axs[1].set_xlabel('q$\mathregular{_{tot}}$/I (h)')
+            axs[1].set_xlabel('$q_{i}/I$ (h)')
         else:
             axs[1].set_xlabel('n$\mathregular{_{eff}}$ in C/n$\mathregular{_{eff}}$')
-        axs[1].set_ylabel('τ')
+        axs[1].set_ylabel('$τ$')
         axs[0].set_ylabel('Specific Capacity \n (mAh/g)')
         axs[1].tick_params(axis = 'x', length = 0)
         axs[0].xaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
@@ -944,7 +950,8 @@ class AMIDR():
         nsig = len(sigsteps)
         print('Found {} charge or discharge steps in signature curve sequences.'.format(nsig))
         caps = []
-        scaps = []
+        cumcaps = []
+        volts = []
         fcaps = []
         rates = []
         initcap = []
@@ -960,8 +967,8 @@ class AMIDR():
         if self.single_p is False:
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
-                stepcaps = step['Capacity'].values
-                volts = step['Potential'].values
+                pulsecaps = step['Capacity'].values
+                pulsevolts = step['Potential'].values
                 currents = np.absolute(step['Current'].values)
                 rate = self.capacity / np.average(currents)
                 minarg = np.argmin(np.absolute(RATES - rate))
@@ -969,11 +976,11 @@ class AMIDR():
                 # slice first and last current values if possible.
                 # if less than 4(NVX) or 5(UHPC) data points, immediate voltage cutoff reached, omit step.
                 if len(currents) > 3:
-                    if volts[-2] == np.around(volts[-2], decimals=2):
+                    if pulsevolts[-2] == np.around(pulsevolts[-2], decimals=2):
                         currents = currents[1:-1]
                         cvoltind = -2
                     elif len(currents) > 4:
-                        if volts[-3] == np.around(volts[-3], decimals=2):
+                        if pulsevolts[-3] == np.around(pulsevolts[-3], decimals=2):
                             currents = currents[1:-1]
                             cvoltind = -3
                         else:
@@ -984,62 +991,66 @@ class AMIDR():
                     continue
                     
                 # determine dqdv based on the measurements before the voltage cutoff
-                diffq = (stepcaps[cvoltind-2] - stepcaps[cvoltind-1]) / (volts[cvoltind-2] - volts[cvoltind-1])
+                diffq = (pulsecaps[cvoltind-2] - pulsecaps[cvoltind-1]) / (pulsevolts[cvoltind-2] - pulsevolts[cvoltind-1])
                 
-                #if (np.amax(stepcaps) - np.amin(stepcaps))/self.mass < 5e-5:
+                #if (np.amax(pulsecaps) - np.amin(pulsecaps))/self.mass < 5e-5:
                 #    continue
             
                 if caps == []:
-                    caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
+                    caps.append([np.amax(pulsecaps) - np.amin(pulsecaps)])
+                    volts.append([np.amax(pulsevolts) - np.amin(pulsevolts)])
                     rates.append([RATES[minarg]])
-                    #initcutvolt = np.around(volts[0], decimals=3)
-                    initcap.append([stepcaps[0]])
-                    cutcap.append([stepcaps[cvoltind]])
-                    initvolts.append([volts[0]])
-                    cutvolts.append([volts[cvoltind]])
+                    #initcutvolt = np.around(pulsevolts[0], decimals=3)
+                    initcap.append([pulsecaps[0]])
+                    cutcap.append([pulsecaps[cvoltind]])
+                    initvolts.append([pulsevolts[0]])
+                    cutvolts.append([pulsevolts[cvoltind]])
                     currs.append([np.average(currents)])
-                    ir.append([np.absolute(volts[0] - volts[1])])
+                    ir.append([np.absolute(pulsevolts[0] - pulsevolts[1])])
                     dqdv.append([diffq])
                     resistdrop.append([ir[-1][-1]/currs[-1][-1]])
                 else:
                     #if np.amax(currents) < currs[-1][-1]:
-                    if volts[cvoltind] == cutvolts[-1][-1]:
-                        caps[-1].append(np.amax(stepcaps) - np.amin(stepcaps))
+                    if pulsevolts[cvoltind] == cutvolts[-1][-1]:
+                        caps[-1].append(np.amax(pulsecaps) - np.amin(pulsecaps))
+                        volts[-1].append(np.amax(pulsevolts) - np.amin(pulsevolts))
                         rates[-1].append(RATES[minarg])
-                        cutcap[-1].append(stepcaps[cvoltind])
-                        cutvolts[-1].append(volts[cvoltind])
+                        cutcap[-1].append(pulsecaps[cvoltind])
+                        cutvolts[-1].append(pulsevolts[cvoltind])
                         currs[-1].append(np.average(currents))
-                        ir[-1].append(np.absolute(volts[0] - volts[1]))
+                        ir[-1].append(np.absolute(pulsevolts[0] - pulsevolts[1]))
                         dqdv[-1].append(diffq)
                         resistdrop[-1].append(ir[-1][-1]/currs[-1][-1])
                     else:
-                        if np.absolute(volts[-2] - cutvolts[-1][-1]) < 0.001:
+                        if np.absolute(pulsevolts[-2] - cutvolts[-1][-1]) < 0.001:
                             continue
-                        #print(np.average(currents), volts[-2])
-                        caps.append([np.amax(stepcaps) - np.amin(stepcaps)])
+                        #print(np.average(currents), pulsevolts[-2])
+                        caps.append([np.amax(pulsecaps) - np.amin(pulsecaps)])
+                        volts.append([np.amax(pulsevolts) - np.amin(pulsevolts)])
                         rates.append([RATES[minarg]])
-                        initcap.append([stepcaps[0]])
-                        cutcap.append([stepcaps[cvoltind]])
-                        initvolts.append([volts[0]])
-                        cutvolts.append([volts[cvoltind]])
+                        initcap.append([pulsecaps[0]])
+                        cutcap.append([pulsecaps[cvoltind]])
+                        initvolts.append([pulsevolts[0]])
+                        cutvolts.append([pulsevolts[cvoltind]])
                         currs.append([np.average(currents)])
-                        ir.append([np.absolute(volts[0] - volts[1])])
+                        ir.append([np.absolute(pulsevolts[0] - pulsevolts[1])])
                         dqdv.append([diffq])
                         resistdrop.append([ir[-1][-1]/currs[-1][-1]])
             
             nvolts = len(caps)
             for i in range(nvolts):
                 fcaps.append(np.cumsum(caps[i]) / np.sum(caps[i]))
-                scaps.append(np.cumsum(caps[i]))
+                cumcaps.append(np.cumsum(caps[i]))
                 
-                eff_rates.append(scaps[i][-1]/currs[i])
+                eff_rates.append(cumcaps[i][-1]/currs[i])
                 
                 # Remove data where capacity is too small due to IR
                 # i.e., voltage cutoff was reached immediately.
                 inds = np.where(fcaps[i] < self.fcap_min)[0]
                 if len(inds) > 0:
                     caps[i] = np.delete(caps[i], inds)
-                    scaps[i] = np.delete(scaps[i], inds)
+                    volts[i] = np.delete(volts[i], inds)
+                    cumcaps[i] = np.delete(cumcaps[i], inds)
                     fcaps[i] = np.delete(fcaps[i], inds)
                     eff_rates[i] = np.delete(eff_rates[i], inds)
                     rates[i] = np.delete(rates[i], inds)
@@ -1054,17 +1065,17 @@ class AMIDR():
             if self.capacitance_corr == True:
                 print("Capacitance correction cannot be applied to multi-pulse AMID data. Data is being analyzed without capacitance correction.")
         else:
-            # id_caps is the idealized capacity for a given voltage based upon dqdv
-            # currsCum is the cumulative averge current for determining where C should be calculated
-            id_caps = []
-            currsCum = []
+            # idcaps is the idealized capacity for a given voltage based upon dqdv
+            # cumcurrs is the cumulative averge current for determining where C should be calculated
+            idcaps = []
+            cumcurrs = []
             voltsAct = []
             time = []
             for i in range(nsig):
                 step = sigs.loc[sigs['Prot_step'] == sigsteps[i]]
-                stepcaps = step['Capacity'].values
-                volts = step['Potential'].values
-                lvolts = step['Label Potential'].values
+                pulsecaps = step['Capacity'].values
+                pulsevolts = step['Potential'].values
+                lpulsevolts = step['Label Potential'].values
                 currents = np.absolute(step['Current'].values)
                 runtime = step['Time'].values
                 
@@ -1072,39 +1083,38 @@ class AMIDR():
                 ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 2]
                 if ocvstep['Step'].values[0] != 0:
                     ocvstep = self.sigdf.loc[self.sigdf['Prot_step'] == sigsteps[i] + 1]
-                ocvstepcaps = ocvstep['Capacity'].values
+                ocvpulsecaps = ocvstep['Capacity'].values
                 ocvvolts = ocvstep['Potential'].values
                 ocvlvolts = ocvstep['Label Potential'].values
                 
-                ir.append([np.absolute(volts[1] - volts[0])])
+                ir.append([np.absolute(pulsevolts[1] - pulsevolts[0])])
+                                
+                initcap.append([pulsecaps[0]])
+                cutcap.append([ocvpulsecaps[-1]]) 
+                initvolts.append([lpulsevolts[0]])
+                cutvolts.append([ocvlvolts[-1]]) 
                 
-                dqdv.append([(stepcaps[0] - ocvstepcaps[-1])/(volts[0] - ocvvolts[-1])])
+                dqdv.append([(pulsecaps[0] - ocvpulsecaps[-1])/(pulsevolts[0] - ocvvolts[-1])])
                 
                 time.append(np.absolute(runtime[1:] - runtime[0]))
-                caps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
-                scaps.append(np.absolute(stepcaps[1:] - stepcaps[0]))
-                id_caps.append(np.absolute(dqdv[-1][0]*(volts[1:] - volts[0])))
+                caps.append(np.absolute(pulsecaps[1:] - pulsecaps[0]))
+                cumcaps.append(np.absolute(pulsecaps[1:] - pulsecaps[0]))
+                volts.append(np.absolute(pulsevolts[1:] - pulsevolts[0]))
+                idcaps.append(np.absolute(dqdv[-1][0]*(pulsevolts[1:] - pulsevolts[0])))
                 currs.append(currents[1:])
-                voltsAct.append(volts[1:])
+                voltsAct.append(pulsevolts[1:])
                 
-                currsCum.append([])
+                cumcurrs.append([])
                 for j in range(len(currents[1:])):
-                    currsCum[-1].append(np.average(currents[1:j+2]))
-                    minarg = np.argmin(np.absolute(RATES - self.capacity / currsCum[-1][j]))
+                    cumcurrs[-1].append(np.average(currents[1:j+2]))
+                    minarg = np.argmin(np.absolute(RATES - self.capacity / cumcurrs[-1][j]))
                     if j == 0:
                         rates.append([RATES[minarg]])
                     else:
                         rates[-1].append(RATES[minarg])
                 
                 resistdrop.append([ir[-1][-1]/currs[-1][0]])
-                
-                #if cutvolts == []:
-                    #initcutvolt = np.around(lvolts[0], decimals=3)
-                initcap.append([stepcaps[0]])
-                cutcap.append([ocvstepcaps[-1]]) 
-                initvolts.append([lvolts[0]])
-                cutvolts.append([ocvlvolts[-1]]) 
-                
+ 
             nvolts = len(caps)
             
             if self.capacitance_corr == True:
@@ -1151,27 +1161,30 @@ class AMIDR():
                         if caps[i][j] < 0:
                             caps[i][j] = 0
                     
-                    id_caps[i] = id_caps[i] - dlcaps #- dqdv[i][0]*currs[i]*rohm 
-                    # if id_caps is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
+                    idcaps[i] = idcaps[i] - dlcaps #- dqdv[i][0]*currs[i]*rohm 
+                    # if idcaps is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if id_caps[i][j] <= 0:
-                            id_caps[i][j] = float('NaN')
+                        if idcaps[i][j] <= 0:
+                            idcaps[i][j] = float('NaN')
                     
-                    #currsCum[i] = currsCum[i] - dlcaps/time[i] # disabled as it may amplify error if near 0
+                    #cumcurrs[i] = cumcurrs[i] - dlcaps/time[i] # disabled as it may amplify error if near 0
                     # if cumulative current is calculated as negative or zero, this datapoint is effectively thrown out (caps set to nan)
                     for j in range(len(caps[i])):
-                        if currsCum[i][j] <= 0:
-                            currsCum[i][j] = float('NaN')
+                        if cumcurrs[i][j] <= 0:
+                            cumcurrs[i][j] = float('NaN')
             
             for i in range(nvolts):
-                fcaps.append(caps[i]/id_caps[i])
-                eff_rates.append(id_caps[i]/currsCum[i])
+                fcaps.append(caps[i]/idcaps[i])
+                eff_rates.append(idcaps[i]/cumcurrs[i])
                 
                 # outlier repair: if fcap or eff_rates is NaN, make it equal to the succeeding point (or previous if last point).
                 for j in range(len(caps[i])):
                     if fcaps[i][-j - 1] != fcaps[i][-j - 1] or eff_rates[i][-j - 1] != eff_rates[i][-j - 1]:
                         fcaps[i][-j - 1] = fcaps[i][-j]
                         eff_rates[i][-j - 1] = eff_rates[i][-j]
+                        
+            if self.fcap_min != 0.0:
+                print("Fractional capacity exclusion cannot be applied to single-pulse AMIDR data. Data is being analyzed without fractional capacity exclusion.")
         
         print('Found {} signature curves.'.format(nvolts))
         
@@ -1211,9 +1224,10 @@ class AMIDR():
         iadj = 0
         for i in range(nvolts):    
             if len([j for j in fcaps[i-iadj] if j>0.001]) < 4:
-                print("{} removed due to not having 4 or more datapoints with fcap above 0.001".format(vlabels[i-iadj]))
+                print("{} removed due to not having 4 or more datapoints with relative change in capacity ($τ$) above 0.001".format(vlabels[i-iadj]))
                 caps.pop(i-iadj)
-                scaps.pop(i-iadj)
+                cumcaps.pop(i-iadj)
+                volts.pop(i-iadj)
                 fcaps.pop(i-iadj)
                 eff_rates.pop(i-iadj)
                 rates.pop(i-iadj)
@@ -1230,17 +1244,15 @@ class AMIDR():
                 iadj = iadj + 1
         nvolts = len(caps)
         
-        new_caps = []
-        new_scaps = []
+        speccaps = []
+        speccumcaps = []
         for i in range(nvolts):
-            new_caps.append(1000*np.array(caps[i])/self.mass)
-            new_scaps.append(1000*np.array(scaps[i])/self.mass)
-        #print(new_caps)
+            speccaps.append(1000*np.array(caps[i])/self.mass)
+            speccumcaps.append(1000*np.array(cumcaps[i])/self.mass)
 
-        return new_caps, new_scaps, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, icaps, avg_caps, ivolts, cvolts, avg_volts, dvolts, vlabels 
+        return speccaps, speccumcaps, volts, fcaps, rates, eff_rates, currs, ir, dqdv, resistdrop, icaps, avg_caps, ivolts, cvolts, avg_volts, dvolts, vlabels 
        
-
-    def fit_atlung(self, r, R_corr, soc_inputs = [], micR_input = 4.9, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
+    def fit_atlung(self, r, R_corr, ionsat_inputs = [], micR_input = 4.9, ftol=5e-14, D_bounds=[1e-17, 1e-8], D_guess=1.0e-11, 
                    fcapadj_bounds=[1.0, 1.5], fcapadj_guess=1.0, R_eff_bounds=[1e-6, 1e1], R_eff_guess=1.0e-2, remove_out_of_bounds=True,
                    shape='sphere', nalpha=4000, nQ=4000, export_data=True, export_fig=True, fitlabel=None):
 
@@ -1301,7 +1313,7 @@ class AMIDR():
             z = np.ones(len(self.fcaps[j]))
             #fcap = np.array(self.fcaps[j])
             fcap = np.array(self.fcaps[j])
-            #self._max_cap = self.scaps[j][-1]
+            #self._max_cap = self.cumcaps[j][-1]
             #print('Max cap: {} mAh/g'.format(self._max_cap))
             rates = np.array(self.eff_rates[j])
             #I = np.array(self.currs[j])*1000
@@ -1407,8 +1419,8 @@ class AMIDR():
             else:
                 plt.ylim(0, 1)
             plt.semilogx(Q_arr, tau_sol, '-k', label='Model')
-            plt.xlabel('Q')
-            plt.ylabel('τ')
+            plt.xlabel('$Q$')
+            plt.ylabel('$τ$')
             plt.legend(loc='upper left', frameon = True)
             if Qfit[0] < 1.0e-4 or Qfit[1] < 1.0e-3:
                 plt.xlim(1.0e-6, 1.0e0)
@@ -1452,17 +1464,17 @@ class AMIDR():
                                        'Rfit (Ohm)' : resist, 'micR (Ohmcm^2)' : A*resist*self.mass/(r*micR_input), 'Rdrop (Ohm)' : rdrop, 'Cap Span' : cap_span, 'Fit Error' : fit_err})
             
         # Calculates Free-path Tracer D from inputs
-        if soc_inputs:
-            temp = soc_inputs[0]
-            theorcap = soc_inputs[1]/1000*self.mass
+        if ionsat_inputs:
+            temp = ionsat_inputs[0]
+            theorcap = ionsat_inputs[1]/1000*self.mass
             
-            if soc_inputs[2] > max(self.ivolts) or soc_inputs[2] < min(self.ivolts) or soc_inputs[4] > max(self.ivolts) or soc_inputs[4] < min(self.ivolts):
+            if ionsat_inputs[2] > max(self.ivolts) or ionsat_inputs[2] < min(self.ivolts) or ionsat_inputs[4] > max(self.ivolts) or ionsat_inputs[4] < min(self.ivolts):
                 print('Voltage inputs for calculating Free-path Tracer D are out of range. Tracer D will not be calculated.')
             else:
-                volt1 = soc_inputs[2]
-                newcap1 = soc_inputs[3]/1000*self.mass
-                volt2 = soc_inputs[4]
-                newcap2 = soc_inputs[5]/1000*self.mass
+                volt1 = ionsat_inputs[2]
+                newcap1 = ionsat_inputs[3]/1000*self.mass
+                volt2 = ionsat_inputs[4]
+                newcap2 = ionsat_inputs[5]/1000*self.mass
                 volt1a = float('NaN')
                 volt1b = float('NaN')
                 volt2a = float('NaN')
@@ -1545,10 +1557,10 @@ class AMIDR():
                 fig, axs = plt.subplots(ncols=1, nrows=5, figsize=(6, 12), sharex=True,
                 gridspec_kw={'height_ratios': [1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
                 
-                axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
-                axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
+                axs[0].semilogy(voltage, dconst, 'kx-', label='$D_{c}$')
+                axs[0].semilogy(voltage, dtconst, 'k.:', label='$D_{t}^{*}$')
                 axs[0].set_xlabel('Voltage (V)')
-                axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
+                axs[0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
                 axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
                 axs[0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
                 axs[0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
@@ -1566,7 +1578,7 @@ class AMIDR():
                 axs[2].set_ylim(0, 1.0)
                 axs[2].get_yaxis().set_ticks([0.25, 0.5, 0.75])
                 axs[2].set_xlabel('Voltage (V)')
-                axs[2].set_ylabel('τ Span')
+                axs[2].set_ylabel('$τ$ Span')
                 axs[2].yaxis.set_minor_locator(ticker.AutoMinorLocator())
                 axs[2].grid(which = 'minor', color = 'lightgrey')
                 axs[2].set_axisbelow(True)
@@ -1588,7 +1600,7 @@ class AMIDR():
                 axs[3].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[3].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                 axs[3].set_xlabel('Voltage (V)')
-                axs[3].set_ylabel('Capacity \n (mAh/g)')
+                axs[3].set_ylabel('Specific\nCapacity\n(mAh/g)')
                 axs[3].yaxis.set_minor_locator(ticker.AutoMinorLocator())
                 axs[3].grid(which = 'minor', color = 'lightgrey')
                 axs[3].set_axisbelow(True)
@@ -1597,15 +1609,15 @@ class AMIDR():
                 axs[4].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[4].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                 axs[4].set_xlabel('Voltage (V)')
-                axs[4].set_ylabel('Fractional \n IR drop')
+                axs[4].set_ylabel('Fractional\nIR drop')
                 axs[4].set_axisbelow(True)
                 
             else:
                 fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
                 gridspec_kw={'height_ratios': [1,1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
                 
-                axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
-                axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
+                axs[0].semilogy(voltage, dconst, 'kx-', label='$D_{c}$')
+                axs[0].semilogy(voltage, dtconst, 'k.:', label='$D_{t}^{*}$')
                 axs[0].set_xlabel('Voltage (V)')
                 axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
                 axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
@@ -1623,7 +1635,7 @@ class AMIDR():
                     rddev.append(np.std(resistdrop[i]))
                 axs[1].errorbar(voltage, rdavg, rddev, fmt='k.:', capsize = 3.0, label='V Drop R')
                 axs[1].set_xlabel('Voltage (V)')
-                axs[1].set_ylabel('R (Ω)')
+                axs[1].set_ylabel('$R$ (Ω)')
                 axs[1].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
                 axs[1].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
                 axs[1].grid(which = 'minor', color = 'lightgrey')
@@ -1633,7 +1645,7 @@ class AMIDR():
                 axs[2].semilogy(voltage, 1.0/15*np.ones(len(voltage)), 'k--', linewidth=1, label = 'Equivalent Limitation')
                 axs[2].set_ylim(2.0e-3, 0.8)
                 axs[2].set_xlabel('Voltage (V)')
-                axs[2].set_ylabel('R$\mathregular{_{eff}}$')
+                axs[2].set_ylabel('$R_{eff}$')
                 axs[2].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
                 axs[2].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
                 axs[2].grid(which = 'minor', color = 'lightgrey')
@@ -1649,7 +1661,7 @@ class AMIDR():
                 axs[4].set_ylim(0, 1.0)
                 axs[4].get_yaxis().set_ticks([0.25, 0.5, 0.75])
                 axs[4].set_xlabel('Voltage (V)')
-                axs[4].set_ylabel('τ Span')
+                axs[4].set_ylabel('$τ$ Span')
                 axs[4].yaxis.set_minor_locator(ticker.AutoMinorLocator())
                 axs[4].grid(which = 'minor', color = 'lightgrey')
                 axs[4].set_axisbelow(True)
@@ -1670,7 +1682,7 @@ class AMIDR():
                 axs[5].tick_params(axis='x', which='minor', top=False, bottom=False)
                 axs[5].set_xticklabels(['{:.3f}'.format(v) for v in voltage], rotation=45)
                 axs[5].set_xlabel('Voltage (V)')
-                axs[5].set_ylabel('Capacity \n (mAh/g)')
+                axs[5].set_ylabel('Specific\nCapacity\n(mAh/g)')
                 axs[5].yaxis.set_minor_locator(ticker.AutoMinorLocator())
                 axs[5].grid(which = 'minor', color = 'lightgrey')
                 axs[5].set_axisbelow(True)
@@ -1679,10 +1691,10 @@ class AMIDR():
             fig, axs = plt.subplots(ncols=1, nrows=6, figsize=(6, 12), sharex=True,
             gridspec_kw={'height_ratios': [1,1,0.5,0.5,0.5,0.5], 'hspace': 0.0})
             
-            axs[0].semilogy(voltage, dconst, 'kx-', label='D$\mathregular{_{c}}$')
-            axs[0].semilogy(voltage, dtconst, 'k.:', label='D$\mathregular{_{t}^{*}}$')
+            axs[0].semilogy(voltage, dconst, 'kx-', label='$D_{c}$')
+            axs[0].semilogy(voltage, dtconst, 'k.:', label='$D_{t}^{*}$')
             axs[0].set_xlabel('Voltage (V)')
-            axs[0].set_ylabel('D (cm$\mathregular{^{2}}$/s)')
+            axs[0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
             axs[0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
             axs[0].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
             axs[0].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
@@ -1693,7 +1705,7 @@ class AMIDR():
             axs[1].semilogy(ivoltage, resist, 'kx-', label='Fit R')
             axs[1].semilogy(ivoltage, resistdrop, 'k.:', label='V Drop R')
             axs[1].set_xlabel('Voltage (V)')
-            axs[1].set_ylabel('R (Ω)')
+            axs[1].set_ylabel('$R$ (Ω)')
             axs[1].yaxis.set_minor_locator(ticker.LogLocator(subs = np.arange(1.0, 10.0) * 0.1, numticks = 10))
             axs[1].yaxis.set_major_locator(ticker.LogLocator(numticks = 10))
             axs[1].grid(which = 'minor', color = 'lightgrey')
@@ -1730,7 +1742,7 @@ class AMIDR():
             
             axs[5].plot(voltage, [i*1000/mass for i in dqdv], 'kx-')
             axs[5].set_xlabel('Voltage (V)')
-            axs[5].set_ylabel('dq/dV \n (mAh/gV)')
+            axs[5].set_ylabel('dq/dV\n(mAh/gV)')
             axs[5].yaxis.set_minor_locator(ticker.AutoMinorLocator())
             axs[5].grid(which = 'minor', color = 'lightgrey')
     
@@ -1910,19 +1922,19 @@ class BINAVERAGE():
                                 writer.save()
                                 writer.close()
         
-        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[0, 0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 0].set_ylabel('Max $ρ_{s}$ (Ωcm$\mathregular{^{2}}$)')
         axs[1, 1].set_xlabel('Ion Saturation')
         
-        axs[0, 0].semilogy([], [], 'rx-', label='Dch D$\mathregular{_{c}}$')
-        axs[0, 0].semilogy([], [], 'bx-', label='Ch D$\mathregular{_{c}}$')
-        axs[0, 0].semilogy([], [], 'r.:', label='Dch D$\mathregular{_{t}^{*}}$')
-        axs[0, 0].semilogy([], [], 'b.:', label='Ch D$\mathregular{_{t}^{*}}$')
+        axs[0, 0].semilogy([], [], 'rx-', label='Dch $D_{c}$')
+        axs[0, 0].semilogy([], [], 'bx-', label='Ch $D_{c}$')
+        axs[0, 0].semilogy([], [], 'r.:', label='Dch $D_{t}^{*}$')
+        axs[0, 0].semilogy([], [], 'b.:', label='Ch $D_{t}^{*}$')
         axs[0, 0].legend(frameon = True, ncol = 2)
         
-        axs[0, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max Δdq/dV (D$\mathregular{_{c}}$)')
-        axs[0, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min τ Span (D$\mathregular{_{c}}$)')
+        axs[0, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max $Δdq/dV$ ($D_{c}$)')
+        axs[0, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min $τ$ Span ($D_{c}$)')
         axs[0, 1].legend(frameon = True)
         axs[0, 1].invert_xaxis()
         
@@ -1930,8 +1942,8 @@ class BINAVERAGE():
         axs[1, 0].semilogy([], [], 'bx-', label='Ch')
         axs[1, 0].legend(frameon = True)
         
-        axs[1, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max Δdq/dV')
-        axs[1, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min τ Span')
+        axs[1, 1].semilogy([], [], marker = '4', color = 'grey', linestyle = 'None', label='> Max $Δdq/dV$')
+        axs[1, 1].semilogy([], [], marker = '3', color = 'grey', linestyle = 'None', label='< Min $τ$ Span')
         axs[1, 1].legend(frameon = True)
         
         axs[0, 0].xaxis.set_minor_locator(ticker.AutoMinorLocator())
@@ -2046,10 +2058,10 @@ class BINAVERAGE():
         fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 1].semilogy([], [], 'r-', label='Dch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'b-', label='Ch D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'r:', label='Dch D$\mathregular{_{t}^{*}}$')
-        axs[0, 1].semilogy([], [], 'b:', label='Ch D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].semilogy([], [], 'r-', label='Dch $D_{c}$')
+        axs[0, 1].semilogy([], [], 'b-', label='Ch $D_{c}$')
+        axs[0, 1].semilogy([], [], 'r:', label='Dch $D_{t}^{*}$')
+        axs[0, 1].semilogy([], [], 'b:', label='Ch $D_{t}^{*}$')
         axs[0, 1].legend(frameon = True, ncol = 2)
         
         axs[1, 1].semilogy([], [], 'r-', label='Dch')
@@ -2076,9 +2088,9 @@ class BINAVERAGE():
         axs[1, 0].errorbar(dfOC['Voltage (V)'], dfOC['micR (Ohmcm^2)'],  yerr = yerrCmicR, fmt = 'b-')
         axs[1, 1].errorbar(dfOC['SOC'], dfOC['micR (Ohmcm^2)'], yerr = yerrCmicR, fmt = 'b-')
         
-        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[0, 0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 0].set_ylabel('Max $ρ_{s}$ (Ωcm$\mathregular{^{2}}$)')
         axs[1, 1].set_xlabel('Ion Saturation')
         
         axs[0, 1].invert_xaxis()
@@ -2107,8 +2119,8 @@ class BINAVERAGE():
         fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
         
-        axs[0, 1].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].semilogy([], [], 'k-', label='$D_{c}$')
+        axs[0, 1].semilogy([], [], 'k:', label='$D_{t}^{*}$')
         axs[0, 1].legend(frameon = True, ncol = 2)
         
         axs[1, 0].semilogy([], [])
@@ -2123,9 +2135,9 @@ class BINAVERAGE():
         axs[1, 0].errorbar(dfO['Voltage (V)'], dfO['micR (Ohmcm^2)'], yerr = yerrmicR, fmt = 'k-')
         axs[1, 1].errorbar(dfO['SOC'], dfO['micR (Ohmcm^2)'], yerr = yerrmicR, fmt = 'k-')
         
-        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[0, 0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 0].set_ylabel('Max $ρ_{s}$ (Ωcm$\mathregular{^{2}}$)')
         axs[1, 1].set_xlabel('Ion Saturation')
         
         axs[0, 1].invert_xaxis()
@@ -2185,13 +2197,13 @@ class MATCOMPARE():
         fig, axs = plt.subplots(ncols=2, nrows=2, figsize=(6, 6), sharex='col', sharey='row',
         gridspec_kw={'height_ratios': [1,1], 'hspace': 0.0, 'width_ratios': [1,1], 'wspace': 0.0})
                 
-        axs[0, 1].semilogy([], [], 'k-', label='D$\mathregular{_{c}}$')
-        axs[0, 1].semilogy([], [], 'k:', label='D$\mathregular{_{t}^{*}}$')
+        axs[0, 1].semilogy([], [], 'k-', label='$D_{c}$')
+        axs[0, 1].semilogy([], [], 'k:', label='$D_{t}^{*}$')
         axs[0, 1].legend(frameon = True, ncol = 2)
         
-        axs[0, 0].set_ylabel('Diffusivity (cm$\mathregular{^{2}}$/s)')
+        axs[0, 0].set_ylabel('$D$ (cm$\mathregular{^{2}}$/s)')
         axs[1, 0].set_xlabel('Voltage (V)')
-        axs[1, 0].set_ylabel('Max Interface Contact \n Resistivity (Ωcm$\mathregular{^{2}}$)')
+        axs[1, 0].set_ylabel('Max $ρ_{s}$ (Ωcm$\mathregular{^{2}}$)')
         axs[1, 1].set_xlabel('Ion Saturation')
         
         axs[0, 1].invert_xaxis()
